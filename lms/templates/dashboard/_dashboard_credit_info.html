@@ -39,7 +39,7 @@
         % if credit_status["request_status"] == "pending":
             <p class="message-copy credit-request-pending-msg">
             ${_("Thank you. Your credit is processing. Please see {provider_link} for more information.").format(
-                    provider_link='<a href="{}" target="_blank">{}</a>'.format(credit_status["provider"]["provider_url"],credit_status["provider_name"])
+                    provider_link='<a href="{}" target="_blank">{}</a>'.format(credit_status["provider_status_url"],credit_status["provider_name"])
                 )
             }
             </p>
@@ -62,7 +62,7 @@
         <p class="message-copy credit-request-approved-msg">
         ${_("Your credit has been processed and approved. {congrats}. Please see {provider_link} for more information.").format(
                 congrats="<b>Congratulations</b>",
-                provider_link='<a href="{}" target="_blank">{}</a>'.format(credit_status["provider"]["provider_url"],credit_status["provider_name"]),
+                provider_link='<a href="{}" target="_blank">{}</a>'.format(credit_status["provider_status_url"],credit_status["provider_name"]),
             )
         }
         </p>
@@ -70,7 +70,7 @@
     % elif credit_status["request_status"] == "rejected" and not credit_status["error"] :
         <p class="message-copy credit-request-rejected-msg">
         ${_("Your credit has been processed but denied. Please contact {provider_link} for more information.").format(
-                    provider_link='<a href="{}" target="_blank">{}</a>'.format(credit_status["provider"]["provider_url"],credit_status["provider_name"]),
+                    provider_link='<a href="{}" target="_blank">{}</a>'.format(credit_status["provider_status_url"],credit_status["provider_name"]),
                 )
             }
         </p>
