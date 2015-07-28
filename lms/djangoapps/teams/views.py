@@ -83,7 +83,7 @@ class TeamsDashboardView(View):
         sort_order = 'name'
         topics = get_ordered_topics(course, sort_order)
         topics_page = Paginator(topics, TOPICS_PER_PAGE).page(1)
-        topics_serializer = PaginatedTopicSerializer(instance=topics_page, context={'sort_order': sort_order})
+        topics_serializer = PaginatedTopicSerializer(course_key, instance=topics_page, context={'sort_order': sort_order})
         context = {
             "course": course,
             "topics": topics_serializer.data,
