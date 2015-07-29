@@ -716,6 +716,21 @@ class EnrollmentTest(EnrollmentTestMixin, ModuleStoreTestCase, APITestCase):
             expected_status=expected_status,
         )
 
+    def test_deactivate_enrollment_expired_mode(self):
+        """Verify that an enrollment in an expired mode can be deactivated."""
+        for mode in (CourseMode.HONOR, CourseMode.VERIFIED):
+            CourseModeFactory.create(
+                course_id=self.course.id,
+                mode_slug=mode,
+                mode_display_name=mode,
+            )
+
+        # Create verified enrollment.
+
+        # Change verified mode expiration.
+
+        # Deactivate enrollment.
+
     def test_change_mode_from_user(self):
         """Users should not be able to alter the enrollment mode on an enrollment. """
         # Create an honor and verified mode for a course. This allows an update.
