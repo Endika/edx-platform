@@ -138,7 +138,7 @@ class PaginatedTopicSerializer(PaginationSerializer):
         """Defines meta information for the PaginatedTopicSerializer."""
         object_serializer_class = BaseTopicSerializer
 
-    def __init__(self, course_id, *args, **kwargs):
+    def __init__(self, *args, **kwargs):
         """Adds team_count to each topic."""
         super(PaginatedTopicSerializer, self).__init__(*args, **kwargs)
 
@@ -146,7 +146,6 @@ class PaginatedTopicSerializer(PaginationSerializer):
         # and outputs the result as a list of dicts (one per topic).
         topic_ids = [topic['id'] for topic in self.data['results']]
         teams_per_topic = CourseTeam.objects.filter(
-            course_id=course_id,
             topic_id__in=topic_ids
         ).values('topic_id').annotate(team_count=Count('topic_id'))
 
