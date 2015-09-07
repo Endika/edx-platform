@@ -35,7 +35,7 @@ from util.file import (
     store_uploaded_file, course_and_time_based_filename_generator,
     FileValidationException, UniversalNewlineIterator
 )
-from util.json_request import JsonResponse
+from util.json_request import JsonResponse, JsonResponseBadRequest
 from instructor.views.instructor_task_helpers import extract_email_features, extract_task_features
 
 from microsite_configuration import microsite
@@ -107,7 +107,7 @@ from .tools import (
     bulk_email_is_enabled_for_course,
     add_block_ids,
 )
-from opaque_keys.edx.keys import CourseKey
+from opaque_keys.edx.keys import CourseKey, UsageKey
 from opaque_keys.edx.locations import SlashSeparatedCourseKey
 from opaque_keys import InvalidKeyError
 from openedx.core.djangoapps.course_groups.cohorts import is_course_cohorted
@@ -890,6 +890,51 @@ def list_course_role_members(request, course_id):
 @ensure_csrf_cookie
 @cache_control(no_cache=True, no_store=True, must_revalidate=True)
 @require_level('staff')
+def get_problem_responses(request, course_id):
+    """
+    Initiate generation of a CSV file containing all student answers
+    to a given problem.
+
+    Responds with JSON
+        {"status": "... status message ..."}
+
+    if initiation is successful (or generation task is already running).
+
+    Responds with BadRequest if problem location is faulty.
+    """
+    course_key = CourseKey.from_string(course_id)
+    problem_location = request.GET.get('problem_location', '')
+
+    try:
+        problem_key = UsageKey.from_string(problem_location)
+        # Are we dealing with an "old-style" problem location?
+        run = getattr(problem_key, 'run')
+        if not run:
+            problem_key = course_key.make_usage_key_from_deprecated_string(problem_location)
+        if problem_key.course_key != course_key:
+            raise InvalidKeyError(type(problem_key), problem_key)
+    except InvalidKeyError:
+        return JsonResponseBadRequest(_("Could not find problem with this location."))
+
+    try:
+        instructor_task.api.submit_calculate_problem_responses_csv(request, course_key, problem_location)
+        success_status = _(
+            "The problem responses report is being created."
+            " To view the status of the report, see Pending Tasks below."
+        )
+        return JsonResponse({"status": success_status})
+    except AlreadyRunningError:
+        already_running_status = _(
+            "A problem responses report generation task is already in progress. "
+            "Check the 'Pending Tasks' table for the status of the task. "
+            "When completed, the report will be available for download in the table below."
+        )
+        return JsonResponse({"status": already_running_status})
+
+
+@ensure_csrf_cookie
+@cache_control(no_cache=True, no_store=True, must_revalidate=True)
+@require_level('staff')
 def get_grading_config(request, course_id):
     """
     Respond with json which contains a html formatted grade summary.
@@ -1262,6 +1307,39 @@ def get_exec_summary_report(request, course_id):
     except AlreadyRunningError:
         status_response = _(
             "The executive summary report is currently being created."
+            " To view the status of the report, see Pending Instructor Tasks below."
+            " You will be able to download the report when it is complete."
+        )
+    return JsonResponse({
+        "status": status_response
+    })
+
+
+@ensure_csrf_cookie
+@cache_control(no_cache=True, no_store=True, must_revalidate=True)
+@require_level('staff')
+def get_proctored_exam_results(request, course_id):
+    """
+    get the proctored exam resultsreport for the particular course.
+    """
+    query_features = [
+        'user_email',
+        'exam_name',
+        'allowed_time_limit_mins',
+        'is_sample_attempt',
+        'started_at',
+        'completed_at',
+        'status',
+    ]
+
+    course_key = CourseKey.from_string(course_id)
+    try:
+        instructor_task.api.submit_proctored_exam_results_report(request, course_key, query_features)
+        status_response = _("The proctored exam results report is being created."
+                            " To view the status of the report, see Pending Instructor Tasks below.")
+    except AlreadyRunningError:
+        status_response = _(
+            "The proctored exam results report is currently being created."
             " To view the status of the report, see Pending Instructor Tasks below."
             " You will be able to download the report when it is complete."
         )

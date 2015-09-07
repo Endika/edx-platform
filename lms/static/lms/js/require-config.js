@@ -23,6 +23,7 @@
         defineDependency("Logger", "logger");
         defineDependency("URI", "URI");
         defineDependency("Backbone", "backbone");
+
         // utility.js adds two functions to the window object, but does not return anything
         defineDependency("isExternal", "utility", true);
     }
@@ -43,6 +44,7 @@
             "underscore.string": "js/vendor/underscore.string.min",
             "jquery": "js/vendor/jquery.min",
             "jquery.cookie": "js/vendor/jquery.cookie",
+            'jquery.timeago': 'js/vendor/jquery.timeago',
             "jquery.url": "js/vendor/url.min",
             "jquery.ui": "js/vendor/jquery-ui.min",
             "jquery.iframe-transport": "js/vendor/jQuery-File-Upload/js/jquery.iframe-transport",
@@ -92,6 +94,10 @@
             "jquery.cookie": {
                 deps: ["jquery"],
                 exports: "jQuery.fn.cookie"
+            },
+            "jquery.timeago": {
+                deps: ["jquery"],
+                exports: "jQuery.timeago"
             },
             "jquery.url": {
                 deps: ["jquery"],
@@ -179,8 +185,11 @@
             },
             "tinymce": {
                 exports: "tinymce"
-            }
+            },
             // End of needed by OVA
+            "moment": {
+                exports: "moment"
+            }
         }
     });
 }).call(this, require || RequireJS.require, define || RequireJS.define);

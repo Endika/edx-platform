@@ -11,7 +11,7 @@ from the same directory.
 """
 
 import os
-from path import path
+from path import Path as path
 from tempfile import mkdtemp
 
 # Pylint gets confused by path.py instances, which report themselves as class
@@ -19,7 +19,7 @@ from tempfile import mkdtemp
 # and throws spurious errors. Therefore, we disable invalid-name checking.
 # pylint: disable=invalid-name
 
-CONFIG_ROOT = path(__file__).abspath().dirname()  # pylint: disable=no-value-for-parameter
+CONFIG_ROOT = path(__file__).abspath().dirname()
 TEST_ROOT = CONFIG_ROOT.dirname().dirname() / "test_root"
 
 ########################## Prod-like settings ###################################
@@ -47,7 +47,7 @@ LOG_DIR = (TEST_ROOT / "log").abspath()
 update_module_store_settings(
     MODULESTORE,
     module_store_options={
-        'fs_root': (TEST_ROOT / "data").abspath(),  # pylint: disable=no-value-for-parameter
+        'fs_root': (TEST_ROOT / "data").abspath(),
     },
     xml_store_options={
         'data_dir': (TEST_ROOT / "data").abspath(),
@@ -129,6 +129,8 @@ FEATURES['LICENSING'] = True
 FEATURES['MILESTONES_APP'] = True
 FEATURES['ENTRANCE_EXAMS'] = True
 
+FEATURES['ENABLE_PROCTORED_EXAMS'] = True
+
 # Point the URL used to test YouTube availability to our stub YouTube server
 YOUTUBE_PORT = 9080
 YOUTUBE['API'] = "http://127.0.0.1:{0}/get_youtube_api/".format(YOUTUBE_PORT)
@@ -161,7 +163,7 @@ FEATURES['ENABLE_DASHBOARD_SEARCH'] = True
 SEARCH_ENGINE = "search.tests.mock_search_engine.MockSearchEngine"
 # Path at which to store the mock index
 MOCK_SEARCH_BACKING_FILE = (
-    TEST_ROOT / "index_file.dat"  # pylint: disable=no-value-for-parameter
+    TEST_ROOT / "index_file.dat"
 ).abspath()
 
 # Generate a random UUID so that different runs of acceptance tests don't break each other

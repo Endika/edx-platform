@@ -11,7 +11,7 @@ from the same directory.
 """
 
 import os
-from path import path
+from path import Path as path
 
 # Pylint gets confused by path.py instances, which report themselves as class
 # objects. As a result, pylint applies the wrong regex in validating names,
@@ -26,7 +26,7 @@ from path import path
 # This is a convenience for ensuring (a) that we can consistently find the files
 # and (b) that the files are the same in Jenkins as in local dev.
 os.environ['SERVICE_VARIANT'] = 'bok_choy'
-os.environ['CONFIG_ROOT'] = path(__file__).abspath().dirname()  # pylint: disable=no-value-for-parameter
+os.environ['CONFIG_ROOT'] = path(__file__).abspath().dirname()
 
 from .aws import *  # pylint: disable=wildcard-import, unused-wildcard-import
 
@@ -36,7 +36,7 @@ from .aws import *  # pylint: disable=wildcard-import, unused-wildcard-import
 INSTALLED_APPS += ('django_extensions',)
 
 # Redirect to the test_root folder within the repo
-TEST_ROOT = REPO_ROOT / "test_root"  # pylint: disable=no-value-for-parameter
+TEST_ROOT = REPO_ROOT / "test_root"
 GITHUB_REPO_ROOT = (TEST_ROOT / "data").abspath()
 LOG_DIR = (TEST_ROOT / "log").abspath()
 DATA_DIR = TEST_ROOT / "data"
@@ -45,7 +45,7 @@ DATA_DIR = TEST_ROOT / "data"
 update_module_store_settings(
     MODULESTORE,
     module_store_options={
-        'fs_root': (TEST_ROOT / "data").abspath(),  # pylint: disable=no-value-for-parameter
+        'fs_root': (TEST_ROOT / "data").abspath(),
     },
     xml_store_options={
         'data_dir': (TEST_ROOT / "data").abspath(),
@@ -101,6 +101,8 @@ FEATURES['ENABLE_VIDEO_BUMPER'] = True  # Enable video bumper in Studio settings
 ########################### Entrance Exams #################################
 FEATURES['ENTRANCE_EXAMS'] = True
 
+FEATURES['ENABLE_PROCTORED_EXAMS'] = True
+
 # Point the URL used to test YouTube availability to our stub YouTube server
 YOUTUBE_PORT = 9080
 YOUTUBE['API'] = "http://127.0.0.1:{0}/get_youtube_api/".format(YOUTUBE_PORT)
@@ -112,7 +114,7 @@ FEATURES['ENABLE_LIBRARY_INDEX'] = True
 SEARCH_ENGINE = "search.tests.mock_search_engine.MockSearchEngine"
 # Path at which to store the mock index
 MOCK_SEARCH_BACKING_FILE = (
-    TEST_ROOT / "index_file.dat"  # pylint: disable=no-value-for-parameter
+    TEST_ROOT / "index_file.dat"
 ).abspath()
 
 # Generate a random UUID so that different runs of acceptance tests don't break each other

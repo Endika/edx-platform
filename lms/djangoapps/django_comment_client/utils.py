@@ -15,14 +15,15 @@ from opaque_keys.edx.keys import CourseKey
 from xmodule.modulestore.django import modulestore
 
 from django_comment_common.models import Role, FORUM_ROLE_STUDENT
-from django_comment_client.permissions import check_permissions_by_view, has_permission
+from django_comment_client.permissions import check_permissions_by_view, has_permission, get_team
 from django_comment_client.settings import MAX_COMMENT_DEPTH
 from edxmako import lookup_template
 
+from courseware import courses
 from courseware.access import has_access
 from openedx.core.djangoapps.content.course_structures.models import CourseStructure
 from openedx.core.djangoapps.course_groups.cohorts import (
-    get_course_cohort_settings, get_cohort_by_id, get_cohort_id, is_commentable_cohorted, is_course_cohorted
+    get_course_cohort_settings, get_cohort_by_id, get_cohort_id, is_course_cohorted
 )
 from openedx.core.djangoapps.course_groups.models import CourseUserGroup
 
@@ -53,6 +54,26 @@ def merge_dict(dic1, dic2):
 def get_role_ids(course_id):
     roles = Role.objects.filter(course_id=course_id).exclude(name=FORUM_ROLE_STUDENT)
     return dict([(role.name, list(role.users.values_list('id', flat=True))) for role in roles])
+
+
+def has_discussion_privileges(user, course_id):
+    """Returns True if the user is privileged in teams discussions for
+    this course. The user must be one of Discussion Admin, Moderator,
+    or Community TA.
+
+    Args:
+      user (User): The user to check privileges for.
+      course_id (CourseKey): A key for the course to check privileges for.
+
+    Returns:
+      bool
+    """
+    # get_role_ids returns a dictionary of only admin, moderator and community TAs.
+    roles = get_role_ids(course_id)
+    for role in roles:
+        if user.id in roles[role]:
+            return True
+    return False
 
 
 def has_forum_access(uname, course_id, rolename):
@@ -330,6 +351,7 @@ def get_discussion_category_map(course, user, cohorted_if_in_list=False, exclude
 def discussion_category_id_access(course, user, discussion_id):
     """
     Returns True iff the given discussion_id is accessible for user in course.
+    Assumes that the commentable identified by discussion_id has a null or 'course' context.
     Uses the discussion id cache if available, falling back to
     get_discussion_categories_ids if there is no cache.
     """
@@ -660,3 +682,37 @@ def is_comment_too_deep(parent):
             (parent and parent["depth"] >= MAX_COMMENT_DEPTH)
         )
     )
+
+
+def is_commentable_cohorted(course_key, commentable_id):
+    """
+    Args:
+        course_key: CourseKey
+        commentable_id: string
+
+    Returns:
+        Bool: is this commentable cohorted?
+
+    Raises:
+        Http404 if the course doesn't exist.
+    """
+    course = courses.get_course_by_id(course_key)
+    course_cohort_settings = get_course_cohort_settings(course_key)
+
+    if not course_cohort_settings.is_cohorted or get_team(commentable_id):
+        # this is the easy case :)
+        ans = False
+    elif (
+            commentable_id in course.top_level_discussion_topic_ids or
+            course_cohort_settings.always_cohort_inline_discussions is False
+    ):
+        # top level discussions have to be manually configured as cohorted
+        # (default is not).
+        # Same thing for inline discussions if the default is explicitly set to False in settings
+        ans = commentable_id in course_cohort_settings.cohorted_discussions
+    else:
+        # inline discussions are cohorted by default
+        ans = True
+
+    log.debug(u"is_commentable_cohorted(%s, %s) = {%s}", course_key, commentable_id, ans)
+    return ans

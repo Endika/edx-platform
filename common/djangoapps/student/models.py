@@ -35,11 +35,13 @@ from django.db.models.signals import pre_save, post_save
 from django.dispatch import receiver, Signal
 from django.core.exceptions import ObjectDoesNotExist
 from django.utils.translation import ugettext_noop
+from django.core.cache import cache
 from django_countries.fields import CountryField
 import dogstats_wrapper as dog_stats_api
 from eventtracking import tracker
 from opaque_keys.edx.keys import CourseKey
 from opaque_keys.edx.locations import SlashSeparatedCourseKey
+from simple_history.models import HistoricalRecords
 from south.modelsinspector import add_introspection_rules
 from track import contexts
 from xmodule_django.models import CourseKeyField, NoneToEmptyManager
@@ -336,7 +338,7 @@ class UserProfile(models.Model):
             return default_requires_consent
         if date is None:
             date = datetime.now(UTC)
-        return date.year - year_of_birth <= age_limit    # pylint: disable=maybe-no-member
+        return date.year - year_of_birth <= age_limit
 
 
 @receiver(pre_save, sender=UserProfile)
@@ -842,6 +844,12 @@ class CourseEnrollment(models.Model):
 
     objects = CourseEnrollmentManager()
 
+    # Maintain a history of requirement status updates for auditing purposes
+    history = HistoricalRecords()
+
+    # cache key format e.g enrollment.<username>.<course_key>.mode = 'honor'
+    COURSE_ENROLLMENT_CACHE_KEY = u"enrollment.{}.{}.mode"
+
     class Meta(object):  # pylint: disable=missing-docstring
         unique_together = (('user', 'course_id'),)
         ordering = ('user', 'course_id')
@@ -1038,9 +1046,10 @@ class CourseEnrollment(models.Model):
         `course_key` is our usual course_id string (e.g. "edX/Test101/2013_Fall)
 
         `mode` is a string specifying what kind of enrollment this is. The
-               default is "honor", meaning honor certificate. Future options
-               may include "audit", "verified_id", etc. Please don't use it
-               until we have these mapped out.
+               default is 'honor', meaning honor certificate. Other options
+               include 'professional', 'verified', 'audit',
+               'no-id-professional' and 'credit'.
+               See CourseMode in common/djangoapps/course_modes/models.py.
 
         `check_access`: if True, we check that an accessible course actually
                 exists for the given course_key before we enroll the student.
@@ -1196,12 +1205,6 @@ class CourseEnrollment(models.Model):
         if not user.is_authenticated():
             return False
 
-        # unwrap CCXLocators so that we use the course as the access control
-        # source
-        from ccx_keys.locator import CCXLocator
-        if isinstance(course_key, CCXLocator):
-            course_key = course_key.to_course_locator()
-
         try:
             record = CourseEnrollment.objects.get(user=user, course_id=course_key)
             return record.is_active
@@ -1339,6 +1342,49 @@ class CourseEnrollment(models.Model):
         Check the course enrollment mode is verified or not
         """
         return CourseMode.is_verified_slug(self.mode)
+
+    @classmethod
+    def is_enrolled_as_verified(cls, user, course_key):
+        """
+        Check whether the course enrollment is for a verified mode.
+
+        Arguments:
+            user (User): The user object.
+            course_key (CourseKey): The identifier for the course.
+
+        Returns: bool
+
+        """
+        enrollment = cls.get_enrollment(user, course_key)
+        return (
+            enrollment is not None and
+            enrollment.is_active and
+            enrollment.is_verified_enrollment()
+        )
+
+    @classmethod
+    def cache_key_name(cls, user_id, course_key):
+        """Return cache key name to be used to cache current configuration.
+        Args:
+            user_id(int): Id of user.
+            course_key(unicode): Unicode of course key
+
+        Returns:
+            Unicode cache key
+        """
+        return cls.COURSE_ENROLLMENT_CACHE_KEY.format(user_id, unicode(course_key))
+
+
+@receiver(models.signals.post_save, sender=CourseEnrollment)
+@receiver(models.signals.post_delete, sender=CourseEnrollment)
+def invalidate_enrollment_mode_cache(sender, instance, **kwargs):  # pylint: disable=unused-argument, invalid-name
+    """Invalidate the cache of CourseEnrollment model. """
+
+    cache_key = CourseEnrollment.cache_key_name(
+        instance.user.id,
+        unicode(instance.course_id)
+    )
+    cache.delete(cache_key)
 
 
 class ManualEnrollmentAudit(models.Model):

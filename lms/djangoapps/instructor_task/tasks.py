@@ -34,6 +34,7 @@ from instructor_task.tasks_helper import (
     rescore_problem_module_state,
     reset_attempts_module_state,
     delete_problem_module_state,
+    upload_problem_responses_csv,
     upload_grades_csv,
     upload_problem_grade_report,
     upload_students_csv,
@@ -42,6 +43,7 @@ from instructor_task.tasks_helper import (
     upload_may_enroll_csv,
     upload_exec_summary_report,
     generate_students_certificates,
+    upload_proctored_exam_results_report
 )
 
 
@@ -145,6 +147,18 @@ def send_bulk_course_email(entry_id, _xmodule_instance_args):
 
 
 @task(base=BaseInstructorTask, routing_key=settings.GRADES_DOWNLOAD_ROUTING_KEY)  # pylint: disable=not-callable
+def calculate_problem_responses_csv(entry_id, xmodule_instance_args):
+    """
+    Compute student answers to a given problem and upload the CSV to
+    an S3 bucket for download.
+    """
+    # Translators: This is a past-tense verb that is inserted into task progress messages as {action}.
+    action_name = ugettext_noop('generated')
+    task_fn = partial(upload_problem_responses_csv, xmodule_instance_args)
+    return run_main_task(entry_id, task_fn, action_name)
+
+
+@task(base=BaseInstructorTask, routing_key=settings.GRADES_DOWNLOAD_ROUTING_KEY)  # pylint: disable=not-callable
 def calculate_grades_csv(entry_id, xmodule_instance_args):
     """
     Grade a course and push the results to an S3 bucket for download.
@@ -210,6 +224,17 @@ def exec_summary_report_csv(entry_id, xmodule_instance_args):
     # Translators: This is a past-tense verb that is inserted into task progress messages as {action}.
     action_name = 'generating_exec_summary_report'
     task_fn = partial(upload_exec_summary_report, xmodule_instance_args)
+    return run_main_task(entry_id, task_fn, action_name)
+
+
+@task(base=BaseInstructorTask, routing_key=settings.GRADES_DOWNLOAD_ROUTING_KEY)  # pylint: disable=not-callable
+def proctored_exam_results_csv(entry_id, xmodule_instance_args):
+    """
+    Compute proctored exam results report for a course and upload the
+    CSV for download.
+    """
+    action_name = 'generating_proctored_exam_results_report'
+    task_fn = partial(upload_proctored_exam_results_report, xmodule_instance_args)
     return run_main_task(entry_id, task_fn, action_name)
 
 

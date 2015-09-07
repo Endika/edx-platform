@@ -46,7 +46,7 @@ from lms.envs.common import (
     # display credit eligibility table on the CMS or not.
     ENABLE_CREDIT_ELIGIBILITY, YOUTUBE_API_KEY
 )
-from path import path
+from path import Path as path
 from warnings import simplefilter
 
 from lms.djangoapps.lms_xblock.mixin import LmsBlockMixin
@@ -168,10 +168,13 @@ FEATURES = {
     },
 
     # Teams feature
-    'ENABLE_TEAMS': False,
+    'ENABLE_TEAMS': True,
 
     # Show video bumper in Studio
     'ENABLE_VIDEO_BUMPER': False,
+
+    # Timed Proctored Exams
+    'ENABLE_PROCTORED_EXAMS': False,
 
     # How many seconds to show the bumper again, default is 7 days:
     'SHOW_BUMPER_PERIODICITY': 7 * 24 * 3600,
@@ -775,6 +778,9 @@ INSTALLED_APPS = (
     'openedx.core.djangoapps.credit',
 
     'xblock_django',
+
+    # edX Proctoring
+    'edx_proctoring',
 )
 
 
@@ -929,6 +935,25 @@ DEFAULT_COURSE_LANGUAGE = "en"
 
 ################ ADVANCED_COMPONENT_TYPES ###############
 
+# These strings are entry-point names from the setup.py of the XBlock.
+# For example:
+#
+#   setup(
+#       name='xblock-foobar',
+#       version='0.1',
+#       packages=[
+#           'foobar_xblock',
+#       ],
+#       entry_points={
+#           'xblock.v1': [
+#               'foobar-block = foobar_xblock:FoobarBlock',
+#           #    ^^^^^^^^^^^^ This is the one you want.
+#           ]
+#       },
+#   )
+#
+# To use this block, add 'foobar-block' to the ADVANCED_COMPONENT_TYPES list.
+
 ADVANCED_COMPONENT_TYPES = [
     'annotatable',
     'textannotation',  # module for annotating text (with annotation table)
@@ -969,17 +994,24 @@ ADVANCED_COMPONENT_TYPES = [
     'edx-reverification-block',
 ]
 
-# Adding components in this list will disable the creation of new problem for those
-# compoenents in studio. Existing problems will work fine and one can edit them in studio
+# Adding components in this list will disable the creation of new problem for
+# those components in Studio. Existing problems will work fine and one can edit
+# them in Studio.
 DEPRECATED_ADVANCED_COMPONENT_TYPES = []
 
-# Specify xblocks that should be treated as advanced problems. Each entry is a tuple
-# specifying the xblock name and an optional YAML template to be used.
+# Specify XBlocks that should be treated as advanced problems. Each entry is a
+# dict:
+#       'component': the entry-point name of the XBlock. See the comment for
+#               ADVANCED_COMPONENT_TYPES for details of where to find this
+#               name.
+#       'boilerplate_name': an optional YAML template to be used.  Specify as
+#               None to omit.
+#
 ADVANCED_PROBLEM_TYPES = [
     {
         'component': 'openassessment',
         'boilerplate_name': None,
-    }
+    },
 ]
 
 
@@ -1040,11 +1072,10 @@ CREDIT_PROVIDER_TIMESTAMP_EXPIRATION = 15 * 60
 
 DEPRECATED_BLOCK_TYPES = ['peergrading', 'combinedopenended']
 
-
 #### PROCTORING CONFIGURATION DEFAULTS
 
 PROCTORING_BACKEND_PROVIDER = {
-    'class': 'edx_proctoring.backends.NullBackendProvider',
+    'class': 'edx_proctoring.backends.null.NullBackendProvider',
     'options': {},
 }
 PROCTORING_SETTINGS = {}

@@ -93,7 +93,7 @@ class RenderXBlockTestMixin(object):
         return response
 
     @ddt.data(
-        (ModuleStoreEnum.Type.mongo, 8),
+        (ModuleStoreEnum.Type.mongo, 7),
         (ModuleStoreEnum.Type.split, 5),
     )
     @ddt.unpack
@@ -166,12 +166,12 @@ class RenderXBlockTestMixin(object):
         self.setup_course()
         self.setup_user(admin=False, enroll=True, login=True)
         self.html_block.start = datetime.max
-        modulestore().update_item(self.html_block, self.user.id)  # pylint: disable=no-member
+        modulestore().update_item(self.html_block, self.user.id)
         self.verify_response(expected_response_code=404)
 
     def test_fail_block_nonvisible(self):
         self.setup_course()
         self.setup_user(admin=False, enroll=True, login=True)
         self.html_block.visible_to_staff_only = True
-        modulestore().update_item(self.html_block, self.user.id)  # pylint: disable=no-member
+        modulestore().update_item(self.html_block, self.user.id)
         self.verify_response(expected_response_code=404)

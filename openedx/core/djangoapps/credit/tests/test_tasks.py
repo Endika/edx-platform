@@ -125,13 +125,14 @@ class TestTaskExecution(ModuleStoreTestCase):
 
         self.assertEqual(len(requirements), 1)
         self.assertEqual(requirements[0]['namespace'], 'proctored_exam')
-        self.assertEqual(requirements[0]['name'], 'proctored_exam_id:1')
+        self.assertEqual(requirements[0]['name'], 'foo')
         self.assertEqual(requirements[0]['display_name'], 'A Proctored Exam')
         self.assertEqual(requirements[0]['criteria'], {})
 
     def test_proctored_exam_filtering(self):
         """
         Make sure that timed or inactive exams do not end up in the requirements table
+        Also practice protored exams are not a requirement
         """
 
         self.add_credit_course(self.course.id)
@@ -180,11 +181,34 @@ class TestTaskExecution(ModuleStoreTestCase):
             if requirement['namespace'] == 'proctored_exam'
         ])
 
+        # practice proctored exams aren't requirements
+        create_exam(
+            course_id=unicode(self.course.id),
+            content_id='foo3',
+            exam_name='A Proctored Exam',
+            time_limit_mins=10,
+            is_proctored=True,
+            is_active=True,
+            is_practice_exam=True
+        )
+
+        on_course_publish(self.course.id)
+
+        requirements = get_credit_requirements(self.course.id)
+        self.assertEqual(len(requirements), 1)
+
+        # make sure we don't have a proctoring requirement
+        self.assertFalse([
+            requirement
+            for requirement in requirements
+            if requirement['namespace'] == 'proctored_exam'
+        ])
+
     def test_query_counts(self):
         self.add_credit_course(self.course.id)
         self.add_icrv_xblock()
 
-        with check_mongo_calls_range(max_finds=7):
+        with check_mongo_calls_range(max_finds=11):
             on_course_publish(self.course.id)
 
     def test_remove_icrv_requirement(self):

@@ -317,14 +317,14 @@ class TestGetCohortedUserPartition(ModuleStoreTestCase):
         self.course.user_partitions.append(self.random_user_partition)
         self.course.user_partitions.append(self.cohort_user_partition)
         self.course.user_partitions.append(self.second_cohort_user_partition)
-        self.assertEqual(self.cohort_user_partition, get_cohorted_user_partition(self.course_key))
+        self.assertEqual(self.cohort_user_partition, get_cohorted_user_partition(self.course))
 
     def test_no_cohort_user_partitions(self):
         """
         Test get_cohorted_user_partition returns None when there are no cohorted user partitions.
         """
         self.course.user_partitions.append(self.random_user_partition)
-        self.assertIsNone(get_cohorted_user_partition(self.course_key))
+        self.assertIsNone(get_cohorted_user_partition(self.course))
 
 
 class TestMasqueradedGroup(StaffMasqueradeTestCase):
@@ -361,7 +361,7 @@ class TestMasqueradedGroup(StaffMasqueradeTestCase):
 
         # Now setup the masquerade for the test user
         setup_masquerade(request, self.test_user, True)
-        scheme = self.user_partition.scheme    # pylint: disable=no-member
+        scheme = self.user_partition.scheme
         self.assertEqual(
             scheme.get_group_for_user(self.course.id, self.test_user, self.user_partition),
             group

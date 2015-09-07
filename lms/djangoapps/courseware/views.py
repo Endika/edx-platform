@@ -44,6 +44,7 @@ from openedx.core.djangoapps.credit.api import (
     is_user_eligible_for_credit,
     is_credit_course
 )
+from courseware.models import StudentModuleHistory
 from courseware.model_data import FieldDataCache, ScoresClient
 from .module_render import toc_for_course, get_module_for_descriptor, get_module, get_module_by_usage_id
 from .entrance_exams import (
@@ -922,97 +923,6 @@ def course_about(request, course_id):
         })
 
 
-@ensure_csrf_cookie
-@cache_if_anonymous('org')
-@ensure_valid_course_key
-def mktg_course_about(request, course_id):
-    """This is the button that gets put into an iframe on the Drupal site."""
-    course_key = SlashSeparatedCourseKey.from_deprecated_string(course_id)
-
-    try:
-        permission_name = microsite.get_value(
-            'COURSE_ABOUT_VISIBILITY_PERMISSION',
-            settings.COURSE_ABOUT_VISIBILITY_PERMISSION
-        )
-        course = get_course_with_access(request.user, permission_name, course_key)
-    except (ValueError, Http404):
-        # If a course does not exist yet, display a "Coming Soon" button
-        return render_to_response(
-            'courseware/mktg_coming_soon.html', {'course_id': course_key.to_deprecated_string()}
-        )
-
-    registered = registered_for_course(course, request.user)
-
-    if has_access(request.user, 'load', course):
-        course_target = reverse('info', args=[course.id.to_deprecated_string()])
-    else:
-        course_target = reverse('about_course', args=[course.id.to_deprecated_string()])
-
-    allow_registration = bool(has_access(request.user, 'enroll', course))
-
-    show_courseware_link = bool(has_access(request.user, 'load', course) or
-                                settings.FEATURES.get('ENABLE_LMS_MIGRATION'))
-    course_modes = CourseMode.modes_for_course_dict(course.id)
-
-    context = {
-        'course': course,
-        'registered': registered,
-        'allow_registration': allow_registration,
-        'course_target': course_target,
-        'show_courseware_link': show_courseware_link,
-        'course_modes': course_modes,
-    }
-
-    # The edx.org marketing site currently displays only in English.
-    # To avoid displaying a different language in the register / access button,
-    # we force the language to English.
-    # However, OpenEdX installations with a different marketing front-end
-    # may want to respect the language specified by the user or the site settings.
-    force_english = settings.FEATURES.get('IS_EDX_DOMAIN', False)
-    if force_english:
-        translation.activate('en-us')
-
-    if settings.FEATURES.get('ENABLE_MKTG_EMAIL_OPT_IN'):
-        # Drupal will pass organization names using a GET parameter, as follows:
-        #     ?org=Harvard
-        #     ?org=Harvard,MIT
-        # If no full names are provided, the marketing iframe won't show the
-        # email opt-in checkbox.
-        org = request.GET.get('org')
-        if org:
-            org_list = org.split(',')
-            # HTML-escape the provided organization names
-            org_list = [cgi.escape(org) for org in org_list]
-            if len(org_list) > 1:
-                if len(org_list) > 2:
-                    # Translators: The join of three or more institution names (e.g., Harvard, MIT, and Dartmouth).
-                    org_name_string = _("{first_institutions}, and {last_institution}").format(
-                        first_institutions=u", ".join(org_list[:-1]),
-                        last_institution=org_list[-1]
-                    )
-                else:
-                    # Translators: The join of two institution names (e.g., Harvard and MIT).
-                    org_name_string = _("{first_institution} and {second_institution}").format(
-                        first_institution=org_list[0],
-                        second_institution=org_list[1]
-                    )
-            else:
-                org_name_string = org_list[0]
-
-            context['checkbox_label'] = ungettext(
-                "I would like to receive email from {institution_series} and learn about its other programs.",
-                "I would like to receive email from {institution_series} and learn about their other programs.",
-                len(org_list)
-            ).format(institution_series=org_name_string)
-
-    try:
-        return render_to_response('courseware/mktg_course_about.html', context)
-    finally:
-        # Just to be safe, reset the language if we forced it to be English.
-        if force_english:
-            translation.deactivate()
-
-
 @login_required
 @cache_control(no_cache=True, no_store=True, must_revalidate=True)
 @transaction.commit_manually
@@ -1201,15 +1111,45 @@ def submission_history(request, course_id, student_username, location):
 
     user_state_client = DjangoXBlockUserStateClient()
     try:
-        history_entries = user_state_client.get_history(student_username, usage_key)
+        history_entries = list(user_state_client.get_history(student_username, usage_key))
     except DjangoXBlockUserStateClient.DoesNotExist:
         return HttpResponse(escape(_(u'User {username} has never accessed problem {location}').format(
             username=student_username,
             location=location
         )))
 
+    # This is ugly, but until we have a proper submissions API that we can use to provide
+    # the scores instead, it will have to do.
+    scores = list(StudentModuleHistory.objects.filter(
+        student_module__module_state_key=usage_key,
+        student_module__student__username=student_username,
+        student_module__course_id=course_key
+    ).order_by('-id'))
+
+    if len(scores) != len(history_entries):
+        log.warning(
+            "Mismatch when fetching scores for student "
+            "history for course %s, user %s, xblock %s. "
+            "%d scores were found, and %d history entries were found. "
+            "Matching scores to history entries by date for display.",
+            course_id,
+            student_username,
+            location,
+            len(scores),
+            len(history_entries),
+        )
+        scores_by_date = {
+            score.created: score
+            for score in scores
+        }
+        scores = [
+            scores_by_date[history.updated]
+            for history in history_entries
+        ]
+
     context = {
         'history_entries': history_entries,
+        'scores': scores,
         'username': student_username,
         'location': location,
         'course_id': course_key.to_deprecated_string()
@@ -1447,8 +1387,8 @@ def _track_successful_certificate_generation(user_id, course_id):  # pylint: dis
 
     """
     if settings.FEATURES.get('SEGMENT_IO_LMS') and hasattr(settings, 'SEGMENT_IO_LMS_KEY'):
-        event_name = 'edx.bi.user.certificate.generate'  # pylint: disable=no-member
-        tracking_context = tracker.get_tracker().resolve_context()  # pylint: disable=no-member
+        event_name = 'edx.bi.user.certificate.generate'
+        tracking_context = tracker.get_tracker().resolve_context()
 
         analytics.track(
             user_id,

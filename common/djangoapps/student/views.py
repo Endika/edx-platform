@@ -447,10 +447,11 @@ def register_user(request, extra_context=None):
     if third_party_auth.is_enabled() and pipeline.running(request):
         running_pipeline = pipeline.get(request)
         current_provider = provider.Registry.get_from_pipeline(running_pipeline)
-        overrides = current_provider.get_register_form_data(running_pipeline.get('kwargs'))
-        overrides['running_pipeline'] = running_pipeline
-        overrides['selected_provider'] = current_provider.name
-        context.update(overrides)
+        if current_provider is not None:
+            overrides = current_provider.get_register_form_data(running_pipeline.get('kwargs'))
+            overrides['running_pipeline'] = running_pipeline
+            overrides['selected_provider'] = current_provider.name
+            context.update(overrides)
 
     return render_to_response('register.html', context)
 
@@ -655,13 +656,6 @@ def dashboard(request):
     )
     courses_requirements_not_met = get_pre_requisite_courses_not_completed(user, courses_having_prerequisites)
 
-    ccx_membership_triplets = []
-    if settings.FEATURES.get('CUSTOM_COURSES_EDX', False):
-        from ccx.utils import get_ccx_membership_triplets
-        ccx_membership_triplets = get_ccx_membership_triplets(
-            user, course_org_filter, org_filter_out_set
-        )
-
     if 'notlive' in request.GET:
         redirect_message = _("The course you are looking for does not start until {date}.").format(
             date=request.GET['notlive']
@@ -697,7 +691,6 @@ def dashboard(request):
         'provider_states': [],
         'order_history_list': order_history_list,
         'courses_requirements_not_met': courses_requirements_not_met,
-        'ccx_membership_triplets': ccx_membership_triplets,
         'nav_hidden': True,
     }
 
@@ -1029,24 +1022,6 @@ def change_enrollment(request, check_access=True):
         return HttpResponseBadRequest(_("Enrollment action is invalid"))
 
 
-@never_cache
-@ensure_csrf_cookie
-def accounts_login(request):
-    """Deprecated. To be replaced by :class:`student_account.views.login_and_registration_form`."""
-    external_auth_response = external_auth_login(request)
-    if external_auth_response is not None:
-        return external_auth_response
-
-    redirect_to = get_next_url_for_login_page(request)
-    context = {
-        'login_redirect_url': redirect_to,
-        'pipeline_running': 'false',
-        'pipeline_url': auth_pipeline_urls(pipeline.AUTH_ENTRY_LOGIN, redirect_url=redirect_to),
-        'platform_name': settings.PLATFORM_NAME,
-    }
-    return render_to_response('login.html', context)
-
-
 # Need different levels of logging
 @ensure_csrf_cookie
 def login_user(request, error=""):  # pylint: disable=too-many-statements,unused-argument
@@ -1062,6 +1037,7 @@ def login_user(request, error=""):  # pylint: disable=too-many-statements,unused
     third_party_auth_successful = False
     trumped_by_first_party_auth = bool(request.POST.get('email')) or bool(request.POST.get('password'))
     user = None
+    platform_name = microsite.get_value("platform_name", settings.PLATFORM_NAME)
 
     if third_party_auth_requested and not trumped_by_first_party_auth:
         # The user has already authenticated via third-party auth and has not
@@ -1083,17 +1059,17 @@ def login_user(request, error=""):  # pylint: disable=too-many-statements,unused
                     username=username, backend_name=backend_name))
             return HttpResponse(
                 _("You've successfully logged into your {provider_name} account, but this account isn't linked with an {platform_name} account yet.").format(
-                    platform_name=settings.PLATFORM_NAME, provider_name=requested_provider.name
+                    platform_name=platform_name, provider_name=requested_provider.name
                 )
                 + "<br/><br/>" +
                 _("Use your {platform_name} username and password to log into {platform_name} below, "
                   "and then link your {platform_name} account with {provider_name} from your dashboard.").format(
-                      platform_name=settings.PLATFORM_NAME, provider_name=requested_provider.name
+                      platform_name=platform_name, provider_name=requested_provider.name
                 )
                 + "<br/><br/>" +
                 _("If you don't have an {platform_name} account yet, "
                   "click <strong>Register</strong> at the top of the page.").format(
-                      platform_name=settings.PLATFORM_NAME),
+                      platform_name=platform_name),
                 content_type="text/plain",
                 status=403
             )
@@ -1794,6 +1770,10 @@ def auto_auth(request):
     full_name = request.GET.get('full_name', username)
     is_staff = request.GET.get('staff', None)
     course_id = request.GET.get('course_id', None)
+
+    # mode has to be one of 'honor'/'professional'/'verified'/'audit'/'no-id-professional'/'credit'
+    enrollment_mode = request.GET.get('enrollment_mode', 'honor')
+
     course_key = None
     if course_id:
         course_key = CourseLocator.from_string(course_id)
@@ -1841,7 +1821,7 @@ def auto_auth(request):
 
     # Enroll the user in a course
     if course_key is not None:
-        CourseEnrollment.enroll(user, course_key)
+        CourseEnrollment.enroll(user, course_key, mode=enrollment_mode)
 
     # Apply the roles
     for role_name in role_names:
@@ -1904,16 +1884,6 @@ def activate_account(request, key):
                             manual_enrollment_audit.reason, enrollment
                         )
 
-            # enroll student in any pending CCXs he/she may have if auto_enroll flag is set
-            if settings.FEATURES.get('CUSTOM_COURSES_EDX'):
-                from ccx.models import CcxMembership, CcxFutureMembership
-                ccxfms = CcxFutureMembership.objects.filter(
-                    email=student[0].email
-                )
-                for ccxfm in ccxfms:
-                    if ccxfm.auto_enroll:
-                        CcxMembership.auto_enroll(student[0], ccxfm)
-
         resp = render_to_response(
             "registration/activation_complete.html",
             {
@@ -1943,7 +1913,7 @@ def password_reset(request):
     form = PasswordResetFormNoActive(request.POST)
     if form.is_valid():
         form.save(use_https=request.is_secure(),
-                  from_email=settings.DEFAULT_FROM_EMAIL,
+                  from_email=microsite.get_value('email_from_address', settings.DEFAULT_FROM_EMAIL),
                   request=request,
                   domain_override=request.get_host())
         # When password change is complete, a "edx.user.settings.changed" event will be emitted.
@@ -2029,12 +1999,12 @@ def password_reset_confirm_wrapper(
             'form': None,
             'title': _('Password reset unsuccessful'),
             'err_msg': err_msg,
-            'platform_name': settings.PLATFORM_NAME,
+            'platform_name': microsite.get_value('platform_name', settings.PLATFORM_NAME),
         }
         return TemplateResponse(request, 'registration/password_reset_confirm.html', context)
     else:
         # we also want to pass settings.PLATFORM_NAME in as extra_context
-        extra_context = {"platform_name": settings.PLATFORM_NAME}
+        extra_context = {"platform_name": microsite.get_value('platform_name', settings.PLATFORM_NAME)}
 
         if request.method == 'POST':
             # remember what the old password hash is before we call down

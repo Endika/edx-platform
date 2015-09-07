@@ -8,6 +8,7 @@ import ddt
 import json
 import unittest
 from datetime import datetime
+from HTMLParser import HTMLParser
 from nose.plugins.attrib import attr
 
 from django.conf import settings
@@ -30,8 +31,10 @@ from certificates import api as certs_api
 from certificates.models import CertificateStatuses, CertificateGenerationConfiguration
 from certificates.tests.factories import GeneratedCertificateFactory
 from course_modes.models import CourseMode
+from courseware.model_data import set_score
 from courseware.testutils import RenderXBlockTestMixin
 from courseware.tests.factories import StudentModuleFactory
+from courseware.user_state_client import DjangoXBlockUserStateClient
 from edxmako.tests import mako_middleware_process_request
 from student.models import CourseEnrollment
 from student.tests.factories import AdminFactory, UserFactory, CourseEnrollmentFactory
@@ -179,7 +182,7 @@ class ViewsTestCase(ModuleStoreTestCase):
     def setUp(self):
         super(ViewsTestCase, self).setUp()
         self.course = CourseFactory.create()
-        self.chapter = ItemFactory.create(category='chapter', parent_location=self.course.location)  # pylint: disable=no-member
+        self.chapter = ItemFactory.create(category='chapter', parent_location=self.course.location)
         self.section = ItemFactory.create(category='sequential', parent_location=self.chapter.location, due=datetime(2013, 9, 18, 11, 30, 00))
         self.vertical = ItemFactory.create(category='vertical', parent_location=self.section.location)
         self.component = ItemFactory.create(category='problem', parent_location=self.vertical.location)
@@ -379,112 +382,6 @@ class ViewsTestCase(ModuleStoreTestCase):
         #       generate/store a real password.
         self.assertEqual(chat_settings['password'], "johndoe@%s" % domain)
 
-    @patch.dict(settings.FEATURES, {'ENABLE_MKTG_EMAIL_OPT_IN': True})
-    def test_course_mktg_about_coming_soon(self):
-        # We should not be able to find this course
-        url = reverse('mktg_about_course', kwargs={'course_id': 'no/course/here'})
-        response = self.client.get(url, {'org': self.org})
-        self.assertIn('Coming Soon', response.content)
-
-        # Verify that the checkbox is not displayed
-        self._email_opt_in_checkbox(response)
-
-    @patch.dict(settings.FEATURES, {'ENABLE_MKTG_EMAIL_OPT_IN': True})
-    @ddt.data(
-        # One organization name
-        (u"ꜱᴛᴀʀᴋ ɪɴᴅᴜꜱᴛʀɪᴇꜱ", u"ꜱᴛᴀʀᴋ ɪɴᴅᴜꜱᴛʀɪᴇꜱ"),
-        # Two organization names
-        (",".join([u"ꜱᴛᴀʀᴋ ɪɴᴅᴜꜱᴛʀɪᴇꜱ"] * 2), u"ꜱᴛᴀʀᴋ ɪɴᴅᴜꜱᴛʀɪᴇꜱ" + " and " + u"ꜱᴛᴀʀᴋ ɪɴᴅᴜꜱᴛʀɪᴇꜱ"),
-        # Three organization names
-        (",".join([u"ꜱᴛᴀʀᴋ ɪɴᴅᴜꜱᴛʀɪᴇꜱ"] * 3), u"ꜱᴛᴀʀᴋ ɪɴᴅᴜꜱᴛʀɪᴇꜱ" + ", " + u"ꜱᴛᴀʀᴋ ɪɴᴅᴜꜱᴛʀɪᴇꜱ" + ", " + "and " + u"ꜱᴛᴀʀᴋ ɪɴᴅᴜꜱᴛʀɪᴇꜱ")
-    )
-    @ddt.unpack
-    def test_course_mktg_register(self, org, org_name_string):
-        response = self._load_mktg_about(org=org)
-        self.assertIn('Enroll in', response.content)
-        self.assertNotIn('and choose your student track', response.content)
-
-        # Verify that the checkbox is displayed
-        self._email_opt_in_checkbox(response, org_name_string)
-
-    @patch.dict(settings.FEATURES, {'ENABLE_MKTG_EMAIL_OPT_IN': True})
-    @ddt.data(
-        # One organization name
-        (u"ꜱᴛᴀʀᴋ ɪɴᴅᴜꜱᴛʀɪᴇꜱ", u"ꜱᴛᴀʀᴋ ɪɴᴅᴜꜱᴛʀɪᴇꜱ"),
-        # Two organization names
-        (",".join([u"ꜱᴛᴀʀᴋ ɪɴᴅᴜꜱᴛʀɪᴇꜱ"] * 2), u"ꜱᴛᴀʀᴋ ɪɴᴅᴜꜱᴛʀɪᴇꜱ" + " and " + u"ꜱᴛᴀʀᴋ ɪɴᴅᴜꜱᴛʀɪᴇꜱ"),
-        # Three organization names
-        (",".join([u"ꜱᴛᴀʀᴋ ɪɴᴅᴜꜱᴛʀɪᴇꜱ"] * 3), u"ꜱᴛᴀʀᴋ ɪɴᴅᴜꜱᴛʀɪᴇꜱ" + ", " + u"ꜱᴛᴀʀᴋ ɪɴᴅᴜꜱᴛʀɪᴇꜱ" + ", " + "and " + u"ꜱᴛᴀʀᴋ ɪɴᴅᴜꜱᴛʀɪᴇꜱ")
-    )
-    @ddt.unpack
-    def test_course_mktg_register_multiple_modes(self, org, org_name_string):
-        CourseMode.objects.get_or_create(
-            mode_slug='honor',
-            mode_display_name='Honor Code Certificate',
-            course_id=self.course_key
-        )
-        CourseMode.objects.get_or_create(
-            mode_slug='verified',
-            mode_display_name='Verified Certificate',
-            course_id=self.course_key
-        )
-
-        response = self._load_mktg_about(org=org)
-        self.assertIn('Enroll in', response.content)
-        self.assertIn('and choose your student track', response.content)
-
-        # Verify that the checkbox is displayed
-        self._email_opt_in_checkbox(response, org_name_string)
-
-        # clean up course modes
-        CourseMode.objects.all().delete()
-
-    @patch.dict(settings.FEATURES, {'ENABLE_MKTG_EMAIL_OPT_IN': True})
-    def test_course_mktg_no_organization_name(self):
-        # Don't pass an organization name as a GET parameter, even though the email
-        # opt-in feature is enabled.
-        response = response = self._load_mktg_about()
-
-        # Verify that the checkbox is not displayed
-        self._email_opt_in_checkbox(response)
-
-    @patch.dict(settings.FEATURES, {'ENABLE_MKTG_EMAIL_OPT_IN': False})
-    def test_course_mktg_opt_in_disabled(self):
-        # Pass an organization name as a GET parameter, even though the email
-        # opt-in feature is disabled.
-        response = self._load_mktg_about(org=self.org)
-
-        # Verify that the checkbox is not displayed
-        self._email_opt_in_checkbox(response)
-
-    @patch.dict(settings.FEATURES, {'ENABLE_MKTG_EMAIL_OPT_IN': True})
-    def test_course_mktg_organization_html(self):
-        response = self._load_mktg_about(org=self.org_html)
-
-        # Verify that the checkbox is displayed with the organization name
-        # in the label escaped as expected.
-        self._email_opt_in_checkbox(response, cgi.escape(self.org_html))
-
-    @patch.dict(settings.FEATURES, {
-        'IS_EDX_DOMAIN': True,
-        'ENABLE_MKTG_EMAIL_OPT_IN': True
-    })
-    def test_mktg_about_language_edx_domain(self):
-        # Since we're in an edx-controlled domain, and our marketing site
-        # supports only English, override the language setting
-        # and use English.
-        response = self._load_mktg_about(language='eo', org=self.org_html)
-        self.assertContains(response, "Enroll in")
-        self.assertContains(response, "and learn about its other programs")
-
-    @patch.dict(settings.FEATURES, {'IS_EDX_DOMAIN': False})
-    def test_mktg_about_language_openedx(self):
-        # If we're in an OpenEdX installation,
-        # may want to support languages other than English,
-        # so respect the language code.
-        response = self._load_mktg_about(language='eo')
-        self.assertContains(response, u"Énröll ïn".encode('utf-8'))
-
     def test_submission_history_accepts_valid_ids(self):
         # log into a staff account
         admin = AdminFactory()
@@ -524,32 +421,50 @@ class ViewsTestCase(ModuleStoreTestCase):
         response = self.client.get(url)
         self.assertFalse('<script>' in response.content)
 
-    def _load_mktg_about(self, language=None, org=None):
-        """Retrieve the marketing about button (iframed into the marketing site)
-        and return the HTTP response.
+    def test_submission_history_contents(self):
+        # log into a staff account
+        admin = AdminFactory.create()
 
-        Keyword Args:
-            language (string): If provided, send this in the 'Accept-Language' HTTP header.
-            org (string): If provided, send the string as a GET parameter.
-
-        Returns:
-            Response
-
-        """
-        # Log in as an administrator to guarantee that we can access the button
-        admin = AdminFactory()
         self.client.login(username=admin.username, password='test')
 
-        # If provided, set the language header
-        headers = {}
-        if language is not None:
-            headers['HTTP_ACCEPT_LANGUAGE'] = language
+        usage_key = self.course_key.make_usage_key('problem', 'test-history')
+        state_client = DjangoXBlockUserStateClient(admin)
 
-        url = reverse('mktg_about_course', kwargs={'course_id': unicode(self.course_key)})
-        if org:
-            return self.client.get(url, {'org': org}, **headers)
-        else:
-            return self.client.get(url, **headers)
+        # store state via the UserStateClient
+        state_client.set(
+            username=admin.username,
+            block_key=usage_key,
+            state={'field_a': 'x', 'field_b': 'y'}
+        )
+
+        set_score(admin.id, usage_key, 0, 3)
+
+        state_client.set(
+            username=admin.username,
+            block_key=usage_key,
+            state={'field_a': 'a', 'field_b': 'b'}
+        )
+        set_score(admin.id, usage_key, 3, 3)
+
+        url = reverse('submission_history', kwargs={
+            'course_id': unicode(self.course_key),
+            'student_username': admin.username,
+            'location': unicode(usage_key),
+        })
+        response = self.client.get(url)
+        response_content = HTMLParser().unescape(response.content)
+
+        # We have update the state 4 times: twice to change content, and twice
+        # to set the scores. We'll check that the identifying content from each is
+        # displayed (but not the order), and also the indexes assigned in the output
+        # #1 - #4
+
+        self.assertIn('#1', response_content)
+        self.assertIn(json.dumps({'field_a': 'a', 'field_b': 'b'}, sort_keys=True, indent=2), response_content)
+        self.assertIn("Score: 0.0 / 3.0", response_content)
+        self.assertIn(json.dumps({'field_a': 'x', 'field_b': 'y'}, sort_keys=True, indent=2), response_content)
+        self.assertIn("Score: 3.0 / 3.0", response_content)
+        self.assertIn('#4', response_content)
 
     def _email_opt_in_checkbox(self, response, org_name_string=None):
         """Check if the email opt-in checkbox appears in the response content."""
@@ -584,12 +499,12 @@ class BaseDueDateTests(ModuleStoreTestCase):
         :param course_kwargs: All kwargs are passed to through to the :class:`CourseFactory`
         """
         course = CourseFactory.create(**course_kwargs)
-        chapter = ItemFactory.create(category='chapter', parent_location=course.location)  # pylint: disable=no-member
+        chapter = ItemFactory.create(category='chapter', parent_location=course.location)
         section = ItemFactory.create(category='sequential', parent_location=chapter.location, due=datetime(2013, 9, 18, 11, 30, 00))
         vertical = ItemFactory.create(category='vertical', parent_location=section.location)
         ItemFactory.create(category='problem', parent_location=vertical.location)
 
-        course = modulestore().get_course(course.id)  # pylint: disable=no-member
+        course = modulestore().get_course(course.id)
         self.assertIsNotNone(course.get_children()[0].get_children()[0].due)
         CourseEnrollmentFactory(user=self.user, course_id=course.id)
         return course
@@ -704,7 +619,7 @@ class StartDateTests(ModuleStoreTestCase):
         :param course_kwargs: All kwargs are passed to through to the :class:`CourseFactory`
         """
         course = CourseFactory.create(start=datetime(2013, 9, 16, 7, 17, 28))
-        course = modulestore().get_course(course.id)  # pylint: disable=no-member
+        course = modulestore().get_course(course.id)
         return course
 
     def get_about_text(self, course_key):
@@ -758,10 +673,10 @@ class ProgressPageTests(ModuleStoreTestCase):
             start=datetime(2013, 9, 16, 7, 17, 28),
             grade_cutoffs={u'çü†øƒƒ': 0.75, 'Pass': 0.5},
         )
-        self.course = modulestore().get_course(course.id)  # pylint: disable=no-member
+        self.course = modulestore().get_course(course.id)
         CourseEnrollmentFactory(user=self.user, course_id=self.course.id)
 
-        self.chapter = ItemFactory.create(category='chapter', parent_location=self.course.location)  # pylint: disable=no-member
+        self.chapter = ItemFactory.create(category='chapter', parent_location=self.course.location)
         self.section = ItemFactory.create(category='sequential', parent_location=self.chapter.location)
         self.vertical = ItemFactory.create(category='vertical', parent_location=self.section.location)
 
@@ -849,7 +764,6 @@ class ProgressPageTests(ModuleStoreTestCase):
                 'name': 'Name 1',
                 'description': 'Description 1',
                 'course_title': 'course_title_1',
-                'org_logo_path': '/t4x/orgX/testX/asset/org-logo-1.png',
                 'signatories': [],
                 'version': 1,
                 'is_active': True

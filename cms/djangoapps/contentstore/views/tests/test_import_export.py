@@ -9,7 +9,7 @@ import os
 import shutil
 import tarfile
 import tempfile
-from path import path
+from path import Path as path
 from uuid import uuid4
 
 from django.test.utils import override_settings
@@ -439,14 +439,12 @@ class ExportTestCase(CourseTestCase):
         root_dir = path(tempfile.mkdtemp())
         try:
             export_library_to_xml(self.store, contentstore(), lib_key, root_dir, name)
-            # pylint: disable=no-member
             lib_xml = lxml.etree.XML(open(root_dir / name / LIBRARY_ROOT).read())
             self.assertEqual(lib_xml.get('org'), lib_key.org)
             self.assertEqual(lib_xml.get('library'), lib_key.library)
             block = lib_xml.find('video')
             self.assertIsNotNone(block)
             self.assertEqual(block.get('url_name'), video_block.url_name)
-            # pylint: disable=no-member
             video_xml = lxml.etree.XML(open(root_dir / name / 'video' / video_block.url_name + '.xml').read())
             self.assertEqual(video_xml.tag, 'video')
             self.assertEqual(video_xml.get('youtube_id_1_0'), youtube_id)

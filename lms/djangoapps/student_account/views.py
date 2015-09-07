@@ -67,7 +67,9 @@ def login_and_registration_form(request, initial_mode="login"):
 
     # If this is a microsite, revert to the old login/registration pages.
     # We need to do this for now to support existing themes.
-    if microsite.is_request_in_microsite():
+    # Microsites can use the new logistration page by setting
+    # 'ENABLE_COMBINED_LOGIN_REGISTRATION' in their microsites configuration file.
+    if microsite.is_request_in_microsite() and not microsite.get_value('ENABLE_COMBINED_LOGIN_REGISTRATION', False):
         if initial_mode == "login":
             return old_login_view(request)
         elif initial_mode == "register":
@@ -100,6 +102,7 @@ def login_and_registration_form(request, initial_mode="login"):
         'third_party_auth_hint': third_party_auth_hint or '',
         'platform_name': settings.PLATFORM_NAME,
         'responsive': True,
+        'allow_iframing': True,
 
         # Include form descriptions retrieved from the user API.
         # We could have the JS client make these requests directly,
@@ -185,7 +188,7 @@ def _third_party_auth_context(request, redirect_to):
     }
 
     if third_party_auth.is_enabled():
-        for enabled in third_party_auth.provider.Registry.enabled():
+        for enabled in third_party_auth.provider.Registry.accepting_logins():
             info = {
                 "id": enabled.provider_id,
                 "name": enabled.name,
@@ -206,12 +209,14 @@ def _third_party_auth_context(request, redirect_to):
         running_pipeline = pipeline.get(request)
         if running_pipeline is not None:
             current_provider = third_party_auth.provider.Registry.get_from_pipeline(running_pipeline)
-            context["currentProvider"] = current_provider.name
-            context["finishAuthUrl"] = pipeline.get_complete_url(current_provider.backend_name)
 
-            if current_provider.skip_registration_form:
-                # As a reliable way of "skipping" the registration form, we just submit it automatically
-                context["autoSubmitRegForm"] = True
+            if current_provider is not None:
+                context["currentProvider"] = current_provider.name
+                context["finishAuthUrl"] = pipeline.get_complete_url(current_provider.backend_name)
+
+                if current_provider.skip_registration_form:
+                    # As a reliable way of "skipping" the registration form, we just submit it automatically
+                    context["autoSubmitRegForm"] = True
 
         # Check for any error messages we may want to display:
         for msg in messages.get_messages(request):
@@ -379,6 +384,7 @@ def account_settings_context(request):
         'platform_name': settings.PLATFORM_NAME,
         'user_accounts_api_url': reverse("accounts_api", kwargs={'username': user.username}),
         'user_preferences_api_url': reverse('preferences_api', kwargs={'username': user.username}),
+        'disable_courseware_js': True,
     }
 
     if third_party_auth.is_enabled():
@@ -393,13 +399,14 @@ def account_settings_context(request):
             'name': state.provider.name,  # The name of the provider e.g. Facebook
             'connected': state.has_account,  # Whether the user's edX account is connected with the provider.
             # If the user is not connected, they should be directed to this page to authenticate
-            # with the particular provider.
+            # with the particular provider, as long as the provider supports initiating a login.
             'connect_url': pipeline.get_login_url(
                 state.provider.provider_id,
                 pipeline.AUTH_ENTRY_ACCOUNT_SETTINGS,
                 # The url the user should be directed to after the auth process has completed.
                 redirect_url=reverse('account_settings'),
             ),
+            'accepts_logins': state.provider.accepts_logins,
             # If the user is connected, sending a POST request to this url removes the connection
             # information for this provider from their edX account.
             'disconnect_url': pipeline.get_disconnect_url(state.provider.provider_id, state.association_id),

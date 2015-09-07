@@ -17,6 +17,8 @@ urlpatterns = patterns(
         'instructor.views.api.modify_access', name="modify_access"),
     url(r'^bulk_beta_modify_access$',
         'instructor.views.api.bulk_beta_modify_access', name="bulk_beta_modify_access"),
+    url(r'^get_problem_responses$',
+        'instructor.views.api.get_problem_responses', name="get_problem_responses"),
     url(r'^get_grading_config$',
         'instructor.views.api.get_grading_config', name="get_grading_config"),
     url(r'^get_students_features(?P<csv>/csv)?$',
@@ -79,6 +81,10 @@ urlpatterns = patterns(
         name='show_unit_extensions'),
     url(r'^show_student_extensions$', 'instructor.views.api.show_student_extensions',
         name='show_student_extensions'),
+
+    # proctored exam downloads...
+    url(r'^get_proctored_exam_results$',
+        'instructor.views.api.get_proctored_exam_results', name="get_proctored_exam_results"),
 
     # Grade downloads...
     url(r'^list_report_downloads$',

@@ -18,6 +18,7 @@ from instructor_task.tasks import (
     reset_problem_attempts,
     delete_problem_state,
     send_bulk_course_email,
+    calculate_problem_responses_csv,
     calculate_grades_csv,
     calculate_problem_grade_report,
     calculate_students_features_csv,
@@ -26,6 +27,7 @@ from instructor_task.tasks import (
     calculate_may_enroll_csv,
     exec_summary_report_csv,
     generate_certificates,
+    proctored_exam_results_csv
 )
 
 from instructor_task.api_helper import (
@@ -327,6 +329,21 @@ def submit_bulk_course_email(request, course_key, email_id):
     return submit_task(request, task_type, task_class, course_key, task_input, task_key)
 
 
+def submit_calculate_problem_responses_csv(request, course_key, problem_location):  # pylint: disable=invalid-name
+    """
+    Submits a task to generate a CSV file containing all student
+    answers to a given problem.
+
+    Raises AlreadyRunningError if said file is already being updated.
+    """
+    task_type = 'problem_responses_csv'
+    task_class = calculate_problem_responses_csv
+    task_input = {'problem_location': problem_location}
+    task_key = ""
+
+    return submit_task(request, task_type, task_class, course_key, task_input, task_key)
+
+
 def submit_calculate_grades_csv(request, course_key):
     """
     AlreadyRunningError is raised if the course's grades are already being updated.
@@ -403,6 +420,20 @@ def submit_executive_summary_report(request, course_key):  # pylint: disable=inv
     task_type = 'exec_summary_report'
     task_class = exec_summary_report_csv
     task_input = {}
+    task_key = ""
+
+    return submit_task(request, task_type, task_class, course_key, task_input, task_key)
+
+
+def submit_proctored_exam_results_report(request, course_key, features):  # pylint: disable=invalid-name
+    """
+    Submits a task to generate a HTML File containing the executive summary report.
+
+    Raises AlreadyRunningError if HTML File is already being updated.
+    """
+    task_type = 'proctored_exam_results_report'
+    task_class = proctored_exam_results_csv
+    task_input = {'features': features}
     task_key = ""
 
     return submit_task(request, task_type, task_class, course_key, task_input, task_key)

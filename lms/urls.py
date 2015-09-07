@@ -16,11 +16,6 @@ if settings.DEBUG or settings.FEATURES.get('ENABLE_DJANGO_ADMIN_SITE'):
 urlpatterns = (
     '',
 
-    # certificate view
-    url(r'^update_certificate$', 'certificates.views.update_certificate'),
-    url(r'^update_example_certificate$', 'certificates.views.update_example_certificate'),
-    url(r'^request_certificate$', 'certificates.views.request_certificate'),
-
     url(r'^$', 'branding.views.index', name="root"),   # Main marketing page, or redirect to courseware
     url(r'^dashboard$', 'student.views.dashboard', name="dashboard"),
     url(r'^login_ajax$', 'student.views.login_user', name="login"),
@@ -100,15 +95,12 @@ if settings.FEATURES["ENABLE_COMBINED_LOGIN_REGISTRATION"]:
             {'initial_mode': 'login'}, name="signin_user"),
         url(r'^register$', 'student_account.views.login_and_registration_form',
             {'initial_mode': 'register'}, name="register_user"),
-        url(r'^accounts/login$', 'student_account.views.login_and_registration_form',
-            {'initial_mode': 'login'}, name="accounts_login"),
     )
 else:
     # Serve the old views
     urlpatterns += (
         url(r'^login$', 'student.views.signin_user', name="signin_user"),
         url(r'^register$', 'student.views.register_user', name="register_user"),
-        url(r'^accounts/login$', 'student.views.accounts_login', name="accounts_login"),
     )
 
 if settings.FEATURES.get("ENABLE_CREDIT_API"):
@@ -147,10 +139,10 @@ if settings.FEATURES["ENABLE_SYSADMIN_DASHBOARD"]:
     )
 
 urlpatterns += (
-    url(r'^support/', include('dashboard.support_urls')),
+    url(r'^support/', include('support.urls', app_name="support", namespace='support')),
 )
 
-#Semi-static views (these need to be rendered and have the login bar, but don't change)
+# Semi-static views (these need to be rendered and have the login bar, but don't change)
 urlpatterns += (
     url(r'^404$', 'static_template_view.views.render',
         {'template': '404.html'}, name="404"),
@@ -303,12 +295,6 @@ if settings.COURSEWARE_ENABLED:
         #About the course
         url(r'^courses/{}/about$'.format(settings.COURSE_ID_PATTERN),
             'courseware.views.course_about', name="about_course"),
-        #View for mktg site (kept for backwards compatibility TODO - remove before merge to master)
-        url(r'^courses/{}/mktg-about$'.format(settings.COURSE_ID_PATTERN),
-            'courseware.views.mktg_course_about', name="mktg_about_course"),
-        #View for mktg site
-        url(r'^mktg/{}/?$'.format(settings.COURSE_ID_PATTERN),
-            'courseware.views.mktg_course_about', name="mktg_about_course"),
 
         #Inside the course
         url(r'^courses/{}/$'.format(settings.COURSE_ID_PATTERN),
@@ -661,22 +647,15 @@ if settings.FEATURES.get('ENABLE_OAUTH2_PROVIDER'):
         ),
     )
 
-# Certificates Web/HTML View
+# Certificates
 urlpatterns += (
-    url(r'^certificates/user/(?P<user_id>[^/]*)/course/{course_id}'.format(course_id=settings.COURSE_ID_PATTERN),
-        'certificates.views.render_html_view', name='cert_html_view'),
-)
+    url(r'^certificates/', include('certificates.urls', app_name="certificates", namespace="certificates")),
 
-BADGE_SHARE_TRACKER_URL = url(
-    r'^certificates/badge_share_tracker/{}/(?P<network>[^/]+)/(?P<student_username>[^/]+)/$'.format(
-        settings.COURSE_ID_PATTERN
-    ),
-    'certificates.views.track_share_redirect',
-    name='badge_share_tracker'
+    # Backwards compatibility with XQueue, which uses URLs that are not prefixed with /certificates/
+    url(r'^update_certificate$', 'certificates.views.update_certificate'),
+    url(r'^update_example_certificate$', 'certificates.views.update_example_certificate'),
+    url(r'^request_certificate$', 'certificates.views.request_certificate'),
 )
-
-if settings.FEATURES.get('ENABLE_OPENBADGES', False):
-    urlpatterns += (BADGE_SHARE_TRACKER_URL,)
 
 # XDomain proxy
 urlpatterns += (
@@ -708,6 +687,7 @@ if settings.DEBUG:
     # in debug mode, allow any template to be rendered (most useful for UX reference templates)
     urlpatterns += url(r'^template/(?P<template>.+)$', 'debug.views.show_reference_template'),
 
+if 'debug_toolbar' in settings.INSTALLED_APPS:
     import debug_toolbar
     urlpatterns += (
         url(r'^__debug__/', include(debug_toolbar.urls)),
@@ -721,4 +701,9 @@ handler500 = 'static_template_view.views.render_500'
 urlpatterns += (
     url(r'^404$', handler404),
     url(r'^500$', handler500),
+)
+
+# include into our URL patterns the HTTP REST API that comes with edx-proctoring.
+urlpatterns += (
+    url(r'^api/', include('edx_proctoring.urls')),
 )

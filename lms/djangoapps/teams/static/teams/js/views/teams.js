@@ -1,31 +1,33 @@
 ;(function (define) {
     'use strict';
     define([
+        'backbone',
+        'gettext',
         'teams/js/views/team_card',
-        'common/js/components/views/paginated_view'
-    ], function (TeamCardView, PaginatedView) {
+        'common/js/components/views/paginated_view',
+        'teams/js/views/team_utils'
+    ], function (Backbone, gettext, TeamCardView, PaginatedView, TeamUtils) {
         var TeamsView = PaginatedView.extend({
             type: 'teams',
 
-            events: {
-                'click button.action': '' // entry point for team creation
+            srInfo: {
+                id: "heading-browse-teams",
+                text: gettext('All teams')
             },
 
             initialize: function (options) {
+                this.topic = options.topic;
+                this.teamMemberships = options.teamMemberships;
+                this.context = options.context;
                 this.itemViewClass = TeamCardView.extend({
                     router: options.router,
-                    maxTeamSize: options.maxTeamSize
+                    topic: options.topic,
+                    maxTeamSize: this.context.maxTeamSize,
+                    srInfo: this.srInfo,
+                    countries: TeamUtils.selectorOptionsArrayToHashWithBlank(this.context.countries),
+                    languages: TeamUtils.selectorOptionsArrayToHashWithBlank(this.context.languages)
                 });
                 PaginatedView.prototype.initialize.call(this);
-            },
-
-            render: function () {
-                PaginatedView.prototype.render.call(this);
-
-                this.$el.append(
-                    $('<button class="action action-primary">' + gettext('Create new team') + '</button>')
-                );
-                return this;
             }
         });
         return TeamsView;

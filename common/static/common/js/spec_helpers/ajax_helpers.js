@@ -1,5 +1,7 @@
-define(['sinon', 'underscore'], function(sinon, _) {
-    var fakeServer, fakeRequests, expectRequest, expectJsonRequest, expectPostRequest,
+define(['sinon', 'underscore', 'URI'], function(sinon, _, URI) {
+    'use strict';
+
+    var fakeServer, fakeRequests, expectRequest, expectJsonRequest, expectPostRequest, expectRequestURL,
         respondWithJson, respondWithError, respondWithTextError, respondWithNoContent;
 
     /* These utility methods are used by Jasmine tests to create a mock server or
@@ -69,6 +71,25 @@ define(['sinon', 'underscore'], function(sinon, _) {
     };
 
     /**
+     * Expect that a JSON request be made with the given URL and parameters.
+     * @param requests The collected requests
+     * @param expectedUrl The expected URL excluding the parameters
+     * @param expectedParameters An object representing the URL parameters
+     * @param requestIndex An optional index for the request (by default, the last request is used)
+     */
+    expectRequestURL = function(requests, expectedUrl, expectedParameters, requestIndex) {
+        var request, parameters;
+        if (_.isUndefined(requestIndex)) {
+            requestIndex = requests.length - 1;
+        }
+        request = requests[requestIndex];
+        expect(new URI(request.url).path()).toEqual(expectedUrl);
+        parameters = new URI(request.url).query(true);
+        delete parameters._;  // Ignore the cache-busting argument
+        expect(parameters).toEqual(expectedParameters);
+    };
+
+    /**
      * Intended for use with POST requests using application/x-www-form-urlencoded.
      */
     expectPostRequest = function(requests, url, body, requestIndex) {
@@ -132,14 +153,15 @@ define(['sinon', 'underscore'], function(sinon, _) {
     };
 
     return {
-        'server': fakeServer,
-        'requests': fakeRequests,
-        'expectRequest': expectRequest,
-        'expectJsonRequest': expectJsonRequest,
-        'expectPostRequest': expectPostRequest,
-        'respondWithJson': respondWithJson,
-        'respondWithError': respondWithError,
-        'respondWithTextError': respondWithTextError,
-        'respondWithNoContent': respondWithNoContent,
+        server: fakeServer,
+        requests: fakeRequests,
+        expectRequest: expectRequest,
+        expectJsonRequest: expectJsonRequest,
+        expectPostRequest: expectPostRequest,
+        expectRequestURL: expectRequestURL,
+        respondWithJson: respondWithJson,
+        respondWithError: respondWithError,
+        respondWithTextError: respondWithTextError,
+        respondWithNoContent: respondWithNoContent
     };
 });

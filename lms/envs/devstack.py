@@ -16,14 +16,20 @@ SITE_NAME = 'localhost:8000'
 PLATFORM_NAME = ENV_TOKENS.get('PLATFORM_NAME', 'Devstack')
 # By default don't use a worker, execute tasks as if they were local functions
 CELERY_ALWAYS_EAGER = True
+HTTPS = 'off'
 
 ################################ LOGGERS ######################################
 
+# Silence noisy logs
 import logging
-
-# Disable noisy loggers
-for pkg_name in ['track.contexts', 'track.middleware', 'dd.dogapi']:
-    logging.getLogger(pkg_name).setLevel(logging.CRITICAL)
+LOG_OVERRIDES = [
+    ('track.contexts', logging.CRITICAL),
+    ('track.middleware', logging.CRITICAL),
+    ('dd.dogapi', logging.CRITICAL),
+    ('django_comment_client.utils', logging.CRITICAL),
+]
+for log_name, log_level in LOG_OVERRIDES:
+    logging.getLogger(log_name).setLevel(log_level)
 
 
 ################################ EMAIL ########################################
@@ -121,6 +127,8 @@ PASSWORD_COMPLEXITY = {}
 ########################### Milestones #################################
 FEATURES['MILESTONES_APP'] = True
 
+########################### Milestones #################################
+FEATURES['ORGANIZATIONS_APP'] = True
 
 ########################### Entrance Exams #################################
 FEATURES['ENTRANCE_EXAMS'] = True
@@ -130,7 +138,7 @@ FEATURES['LICENSING'] = True
 
 
 ########################## Courseware Search #######################
-FEATURES['ENABLE_COURSEWARE_SEARCH'] = False
+FEATURES['ENABLE_COURSEWARE_SEARCH'] = True
 SEARCH_ENGINE = "search.elastic.ElasticSearchEngine"
 
 
@@ -160,6 +168,8 @@ COURSE_DISCOVERY_MEANINGS = {
 }
 
 FEATURES['ENABLE_COURSE_DISCOVERY'] = True
+# Setting for overriding default filtering facets for Course discovery
+# COURSE_DISCOVERY_FILTERS = ["org", "language", "modes"]
 FEATURES['COURSES_ARE_BROWSEABLE'] = True
 HOMEPAGE_COURSE_MAX = 9
 

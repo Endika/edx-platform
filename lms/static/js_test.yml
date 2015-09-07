@@ -39,6 +39,7 @@ lib_paths:
     - xmodule_js/common_static/js/vendor/jquery.min.js
     - xmodule_js/common_static/js/vendor/jquery-ui.min.js
     - xmodule_js/common_static/js/vendor/jquery.cookie.js
+    - xmodule_js/common_static/js/vendor/jquery.timeago.js
     - xmodule_js/common_static/js/vendor/flot/jquery.flot.js
     - xmodule_js/common_static/js/vendor/CodeMirror/codemirror.js
     - xmodule_js/common_static/js/vendor/URI.min.js
@@ -66,13 +67,17 @@ lib_paths:
 # Paths to source JavaScript files
 src_paths:
     - js
+    - coffee/src
     - common/js
     - teams/js
+    - xmodule_js/common_static/coffee
+    - support/js
 
 # Paths to spec (test) JavaScript files
 spec_paths:
     - js/spec
     - teams/js/spec
+    - support/js/spec
 
 # Paths to fixture files (optional)
 # The fixture path will be set automatically when using jasmine-jquery.
@@ -102,6 +107,7 @@ fixture_paths:
     - templates/discovery
     - common/templates
     - teams/templates
+    - support/templates
 
 requirejs:
   paths:

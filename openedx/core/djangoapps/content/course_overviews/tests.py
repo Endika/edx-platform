@@ -4,9 +4,9 @@ Tests for course_overviews app.
 import datetime
 import ddt
 import itertools
-import pytz
 import math
 import mock
+import pytz
 
 from django.utils import timezone
 
@@ -331,3 +331,53 @@ class CourseOverviewTestCase(ModuleStoreTestCase):
             __ = course.lowest_passing_grade
         course_overview = CourseOverview._create_from_course(course)  # pylint: disable=protected-access
         self.assertEqual(course_overview.lowest_passing_grade, None)
+
+    @ddt.data((ModuleStoreEnum.Type.mongo, 1, 1), (ModuleStoreEnum.Type.split, 3, 4))
+    @ddt.unpack
+    def test_versioning(self, modulestore_type, min_mongo_calls, max_mongo_calls):
+        """
+        Test that CourseOverviews with old version numbers are thrown out.
+        """
+        with self.store.default_store(modulestore_type):
+            course = CourseFactory.create()
+            course_overview = CourseOverview.get_from_id(course.id)
+            course_overview.version = CourseOverview.VERSION - 1
+            course_overview.save()
+
+            # Because the course overview now has an old version number, it should
+            # be thrown out after being loaded from the cache, which results in
+            # a call to get_course.
+            with check_mongo_calls_range(max_finds=max_mongo_calls, min_finds=min_mongo_calls):
+                _course_overview_2 = CourseOverview.get_from_id(course.id)
+
+    def test_course_overview_saving_race_condition(self):
+        """
+        Tests that the following scenario will not cause an unhandled exception:
+        - Multiple concurrent requests are made for the same non-existent CourseOverview.
+        - A race condition in the django ORM's save method that checks for the presence
+          of the primary key performs an Insert instead of an Update operation.
+        - An IntegrityError is raised when attempting to create duplicate entries.
+        - This should be handled gracefully in CourseOverview.get_from_id.
+
+        Created in response to https://openedx.atlassian.net/browse/MA-1061.
+        """
+        course = CourseFactory.create()
+
+        # mock the CourseOverview ORM to raise a DoesNotExist exception to force re-creation of the object
+        with mock.patch(
+            'openedx.core.djangoapps.content.course_overviews.models.CourseOverview.objects.get'
+        ) as mock_getter:
+
+            mock_getter.side_effect = CourseOverview.DoesNotExist
+
+            # mock the CourseOverview ORM to not find the primary-key to force an Insert of the object
+            with mock.patch(
+                'openedx.core.djangoapps.content.course_overviews.models.CourseOverview._get_pk_val'
+            ) as mock_get_pk_val:
+
+                mock_get_pk_val.return_value = None
+
+                # verify the CourseOverview is loaded successfully both times,
+                # including after an IntegrityError exception the 2nd time
+                for _ in range(2):
+                    self.assertIsInstance(CourseOverview.get_from_id(course.id), CourseOverview)

@@ -548,13 +548,15 @@
         padding: 0;
       }
 
-      .credit-eligibility-msg {
-        @include float(left);
-        margin-top: 10px;
+      .credit-btn{
+        @include float(right);
       }
 
-      .purchase_credit {
+      .denied-credit-btn{
         @include float(right);
+      }
+      .credit-request-pending-msg{
+        display: inline-block;
       }
 
       .credit-btn {
@@ -572,6 +574,7 @@
         padding: ($baseline/2) $baseline;
         background: $gray-l5;
         border: 1px solid $gray-l4;
+        color: $base-font-color; // Overrides the normal white color in this one case
 
         // STATE: shown
         &.is-shown {
@@ -746,6 +749,20 @@
               font-size: 1.2rem;
               font-weight: bold;
             }
+          }
+          .credit-eligibility-msg {
+            @include float(left);
+            margin-top: 10px;
+          }
+
+          .credit-request-pending-msg {
+            @include float(left);
+            margin-top: 10px;
+          }
+
+          .credit-request-approved-msg{
+            width: flex-grid(10, 12);
+            @include float(left);
           }
 
           .actions {

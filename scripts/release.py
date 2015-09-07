@@ -14,7 +14,7 @@ import json
 import getpass
 
 try:
-    from path import path
+    from path import Path as path
     from git import Repo, Commit
     from git.refs.symbolic import SymbolicReference
     from dateutil.parser import parse as parse_datestring
@@ -501,6 +501,10 @@ def generate_email(start_ref, end_ref, release_date=None):
 
         By the way, if you have an @edx.org email address and are having trouble logging
         into stage, you may need to reset your password.
+
+        If you would prefer this email be sent to a different email address of yours,
+        send a request to oscm@edx.org with the details.
+
     """.format(
         emails=", ".join(prbe.keys()),
         date=release_date.isoformat(),
@@ -521,7 +525,7 @@ def main():
         print(generate_pr_table(args.previous, args.current))
         return
 
-    print("Generating email and it's list of recipients for stage verification. This may take around a minute...")
+    print("Generating stage verification email and its list of recipients. This may take around a minute...")
     print(generate_email(args.previous, args.current, release_date=args.date).encode('UTF-8'))
     print("\n")
     print("Wiki Table:")

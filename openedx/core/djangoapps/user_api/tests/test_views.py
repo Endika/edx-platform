@@ -18,6 +18,7 @@ from django.contrib.auth.models import User
 from django.test import TestCase
 from django.test.testcases import TransactionTestCase
 from django.test.utils import override_settings
+from django.test.client import RequestFactory
 
 from social.apps.django_app.default.models import UserSocialAuth
 
@@ -30,7 +31,7 @@ from third_party_auth.tests.utils import (
     ThirdPartyOAuthTestMixin, ThirdPartyOAuthTestMixinFacebook, ThirdPartyOAuthTestMixinGoogle
 )
 from xmodule.modulestore.tests.factories import CourseFactory
-from xmodule.modulestore.tests.django_utils import ModuleStoreTestCase
+from xmodule.modulestore.tests.django_utils import SharedModuleStoreTestCase
 from ..accounts.api import get_account_settings
 from ..accounts import (
     NAME_MAX_LENGTH, EMAIL_MIN_LENGTH, EMAIL_MAX_LENGTH, PASSWORD_MIN_LENGTH, PASSWORD_MAX_LENGTH,
@@ -1016,7 +1017,7 @@ class RegistrationViewTest(ThirdPartyAuthTestMixin, ApiTestCase):
         )
 
     def test_register_form_year_of_birth(self):
-        this_year = datetime.datetime.now(UTC).year  # pylint: disable=maybe-no-member
+        this_year = datetime.datetime.now(UTC).year
         year_options = (
             [{"value": "", "name": "--", "default": True}] + [
                 {"value": unicode(year), "name": unicode(year)}
@@ -1269,7 +1270,9 @@ class RegistrationViewTest(ThirdPartyAuthTestMixin, ApiTestCase):
         self.assertIn(settings.EDXMKTG_USER_INFO_COOKIE_NAME, self.client.cookies)
 
         user = User.objects.get(username=self.USERNAME)
-        account_settings = get_account_settings(user)
+        request = RequestFactory().get('/url')
+        request.user = user
+        account_settings = get_account_settings(request)
 
         self.assertEqual(self.USERNAME, account_settings["username"])
         self.assertEqual(self.EMAIL, account_settings["email"])
@@ -1307,7 +1310,10 @@ class RegistrationViewTest(ThirdPartyAuthTestMixin, ApiTestCase):
 
         # Verify the user's account
         user = User.objects.get(username=self.USERNAME)
-        account_settings = get_account_settings(user)
+        request = RequestFactory().get('/url')
+        request.user = user
+        account_settings = get_account_settings(request)
+
         self.assertEqual(account_settings["level_of_education"], self.EDUCATION)
         self.assertEqual(account_settings["mailing_address"], self.ADDRESS)
         self.assertEqual(account_settings["year_of_birth"], int(self.YEAR_OF_BIRTH))
@@ -1708,20 +1714,24 @@ class TestGoogleRegistrationView(
 
 
 @ddt.ddt
-class UpdateEmailOptInTestCase(ApiTestCase, ModuleStoreTestCase):
+class UpdateEmailOptInTestCase(ApiTestCase, SharedModuleStoreTestCase):
     """Tests the UpdateEmailOptInPreference view. """
 
     USERNAME = "steve"
     EMAIL = "steve@isawesome.com"
     PASSWORD = "steveopolis"
 
+    @classmethod
+    def setUpClass(cls):
+        super(UpdateEmailOptInTestCase, cls).setUpClass()
+        cls.course = CourseFactory.create()
+        cls.url = reverse("preferences_email_opt_in")
+
     def setUp(self):
         """ Create a course and user, then log in. """
         super(UpdateEmailOptInTestCase, self).setUp()
-        self.course = CourseFactory.create()
         self.user = UserFactory.create(username=self.USERNAME, email=self.EMAIL, password=self.PASSWORD)
         self.client.login(username=self.USERNAME, password=self.PASSWORD)
-        self.url = reverse("preferences_email_opt_in")
 
     @ddt.data(
         (u"True", u"True"),

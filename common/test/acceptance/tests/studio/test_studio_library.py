@@ -13,7 +13,7 @@ from ...pages.studio.library import LibraryEditPage
 from ...pages.studio.users import LibraryUsersPage
 
 
-@attr('shard_4')
+@attr('shard_2')
 @ddt
 class LibraryEditPageTest(StudioLibraryTest):
     """
@@ -186,7 +186,7 @@ class LibraryEditPageTest(StudioLibraryTest):
         self.assertIn("Checkboxes", problem_block.name)
 
 
-@attr('shard_4')
+@attr('shard_5')
 @ddt
 class LibraryNavigationTest(StudioLibraryTest):
     """
@@ -522,9 +522,7 @@ class LibraryUsersPageTest(StudioLibraryTest):
         """
         self.page = LibraryUsersPage(self.browser, self.library_key)
         self.page.visit()
-        self.page.wait_until_no_loading_indicator()
 
-    @flaky  # TODO fix this; see TNL-2647
     def test_user_management(self):
         """
         Scenario: Ensure that we can edit the permissions of users.

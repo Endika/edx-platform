@@ -20,7 +20,7 @@ from openedx.core.lib.logsettings import get_logger_config
 from util.config_parse import convert_tokens
 import os
 
-from path import path
+from path import Path as path
 
 # https://stackoverflow.com/questions/2890146/how-to-force-pyyaml-to-load-strings-as-unicode-objects
 from yaml import Loader, SafeLoader
@@ -316,3 +316,8 @@ if FEATURES.get('INDIVIDUAL_DUE_DATES'):
     FIELD_OVERRIDE_PROVIDERS += (
         'courseware.student_field_overrides.IndividualStudentOverrideProvider',
     )
+
+##################### LTI Provider #####################
+if FEATURES.get('ENABLE_LTI_PROVIDER'):
+    INSTALLED_APPS += ('lti_provider',)
+    AUTHENTICATION_BACKENDS += ('lti_provider.users.LtiBackend', )
