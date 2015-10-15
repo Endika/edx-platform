@@ -118,7 +118,7 @@ class CreditProviderViewTests(UrlResetMixin, TestCase):
         self.assertEqual(content["parameters"]["course_org"], "edX")
         self.assertEqual(content["parameters"]["course_num"], "DemoX")
         self.assertEqual(content["parameters"]["course_run"], "Demo_Course")
-        self.assertEqual(content["parameters"]["final_grade"], self.FINAL_GRADE)
+        self.assertEqual(content["parameters"]["final_grade"], unicode(self.FINAL_GRADE))
         self.assertEqual(content["parameters"]["user_username"], self.USERNAME)
         self.assertEqual(content["parameters"]["user_full_name"], self.USER_FULL_NAME)
         self.assertEqual(content["parameters"]["user_mailing_address"], "")
@@ -393,10 +393,7 @@ class CreditCourseViewSetTests(TestCase):
 
         # POSTs without a CSRF token should fail.
         response = client.post(self.path, data=json.dumps(data), content_type=JSON)
-
-        # NOTE (CCB): Ordinarily we would expect a 403; however, since the CSRF validation and session authentication
-        # fail, DRF considers the request to be unauthenticated.
-        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.status_code, 403)
         self.assertIn('CSRF', response.content)
 
         # Retrieve a CSRF token

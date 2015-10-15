@@ -64,8 +64,6 @@ DISCUSSION_SETTINGS = {
 
 # Features
 FEATURES = {
-    'USE_DJANGO_PIPELINE': True,
-
     'DISPLAY_DEBUG_INFO_TO_STAFF': True,
     'DISPLAY_HISTOGRAMS_TO_STAFF': False,  # For large courses this slows down courseware access for staff.
 
@@ -182,9 +180,6 @@ FEATURES = {
     # Staff Debug tool.
     'ENABLE_STUDENT_HISTORY_VIEW': True,
 
-    # Segment.io for LMS--need to explicitly turn it on for production.
-    'SEGMENT_IO_LMS': False,
-
     # Provide a UI to allow users to submit feedback from the LMS (left-hand help modal)
     'ENABLE_FEEDBACK_SUBMISSION': False,
 
@@ -195,7 +190,7 @@ FEATURES = {
     # Enable URL that shows information about the status of variuous services
     'ENABLE_SERVICE_STATUS': False,
 
-    # Toggle to indicate use of a custom theme
+    # Toggle to indicate use of the Stanford theming system
     'USE_CUSTOM_THEME': False,
 
     # Don't autoplay videos for students
@@ -319,8 +314,7 @@ FEATURES = {
     'ENABLE_MOBILE_REST_API': False,
     'ENABLE_MOBILE_SOCIAL_FACEBOOK_FEATURES': False,
 
-    # Enable APIs required for xBlocks on Mobile, and supported in general
-    'ENABLE_RENDER_XBLOCK_API': False,
+    # Enable temporary APIs required for xBlocks on Mobile
     'ENABLE_COURSE_BLOCKS_NAVIGATION_API': False,
 
     # Enable the combined login/registration form
@@ -379,19 +373,6 @@ FEATURES = {
     # Batch-Generated Certificates from Instructor Dashboard
     'CERTIFICATES_INSTRUCTOR_GENERATION': False,
 
-    # Social Media Sharing on Student Dashboard
-    'SOCIAL_SHARING_SETTINGS': {
-        # Note: Ensure 'CUSTOM_COURSE_URLS' has a matching value in cms/envs/common.py
-        'CUSTOM_COURSE_URLS': False,
-        'DASHBOARD_FACEBOOK': False,
-        'CERTIFICATE_FACEBOOK': False,
-        'CERTIFICATE_FACEBOOK_TEXT': None,
-        'CERTIFICATE_TWITTER': False,
-        'CERTIFICATE_TWITTER_TEXT': None,
-        'DASHBOARD_TWITTER': False,
-        'DASHBOARD_TWITTER_TEXT': None
-    },
-
     # Course discovery feature
     'ENABLE_COURSE_DISCOVERY': False,
 
@@ -417,7 +398,7 @@ FEATURES = {
     'ENABLE_OPENBADGES': False,
 
     # Credit course API
-    'ENABLE_CREDIT_API': False,
+    'ENABLE_CREDIT_API': True,
 
     # The block types to disable need to be specified in "x block disable config" in django admin.
     'ENABLE_DISABLING_XBLOCK_TYPES': True,
@@ -450,6 +431,9 @@ ENV_ROOT = REPO_ROOT.dirname()  # virtualenv dir /edx-platform is in
 COURSES_ROOT = ENV_ROOT / "data"
 
 DATA_DIR = COURSES_ROOT
+
+# comprehensive theming system
+COMP_THEME_DIR = ""
 
 # TODO: Remove the rest of the sys.path modification here and in cms/envs/common.py
 sys.path.append(REPO_ROOT)
@@ -609,6 +593,7 @@ USAGE_ID_PATTERN = r'(?P<usage_id>(?:i4x://?[^/]+/[^/]+/[^/]+/[^@]+(?:@[^/]+)?)|
 
 
 ############################## EVENT TRACKING #################################
+LMS_SEGMENT_KEY = None
 
 # FIXME: Should we be doing this truncation?
 TRACK_MAX_EVENT = 50000
@@ -801,6 +786,7 @@ DEBUG = False
 TEMPLATE_DEBUG = False
 USE_TZ = True
 SESSION_COOKIE_SECURE = False
+SESSION_SAVE_EVERY_REQUEST = False
 
 # CMS base
 CMS_BASE = 'localhost:8001'
@@ -1207,20 +1193,21 @@ X_FRAME_OPTIONS = 'ALLOW'
 
 ############################### PIPELINE #######################################
 
+PIPELINE_ENABLED = True
+
 # Process static files using RequireJS Optimizer
 STATICFILES_STORAGE = 'openedx.core.lib.django_require.staticstorage.OptimizedCachedRequireJsStorage'
 
 # List of finder classes that know how to find static files in various locations.
 # Note: the pipeline finder is included to be able to discover optimized files
 STATICFILES_FINDERS = [
-    'staticfiles.finders.FileSystemFinder',
-    'staticfiles.finders.AppDirectoriesFinder',
+    'django.contrib.staticfiles.finders.FileSystemFinder',
+    'django.contrib.staticfiles.finders.AppDirectoriesFinder',
     'pipeline.finders.PipelineFinder',
 ]
 
-# Don't use compression by default
 PIPELINE_CSS_COMPRESSOR = None
-PIPELINE_JS_COMPRESSOR = None
+PIPELINE_JS_COMPRESSOR = 'pipeline.compressors.uglifyjs.UglifyJSCompressor'
 
 # Setting that will only affect the edX version of django-pipeline until our changes are merged upstream
 PIPELINE_COMPILE_INPLACE = True
@@ -1622,7 +1609,6 @@ if os.path.isdir(DATA_DIR):
 STATICFILES_IGNORE_PATTERNS = (
     "*.py",
     "*.pyc",
-    "*.html",
 
     # It would be nice if we could do, for example, "**/*.scss",
     # but these strings get passed down to the `fnmatch` module,
@@ -1825,8 +1811,11 @@ INSTALLED_APPS = (
     # For asset pipelining
     'edxmako',
     'pipeline',
-    'staticfiles',
+    'django.contrib.staticfiles',
     'static_replace',
+
+    # Theming
+    'openedx.core.djangoapps.theming',
 
     # Our courseware
     'circuit',
@@ -1860,6 +1849,12 @@ INSTALLED_APPS = (
     'provider',
     'provider.oauth2',
     'oauth2_provider',
+
+    # We don't use this directly (since we use OAuth2), but we need to install it anyway.
+    # When a user is deleted, Django queries all tables with a FK to the auth_user table,
+    # and since django-rest-framework-oauth imports this, it will try to access tables
+    # defined by oauth_provider.  If those tables don't exist, an error can occur.
+    'oauth_provider',
 
     'auth_exchange',
 
@@ -1976,6 +1971,14 @@ INSTALLED_APPS = (
 CSRF_COOKIE_AGE = 60 * 60 * 24 * 7 * 52
 
 
+######################### Django Rest Framework ########################
+
+REST_FRAMEWORK = {
+    'DEFAULT_PAGINATION_CLASS': 'openedx.core.lib.api.paginators.DefaultPagination',
+    'PAGE_SIZE': 10,
+}
+
+
 ######################### MARKETING SITE ###############################
 EDXMKTG_LOGGED_IN_COOKIE_NAME = 'edxloggedin'
 EDXMKTG_USER_INFO_COOKIE_NAME = 'edx-user-info'
@@ -1997,6 +2000,20 @@ MKTG_URL_LINK_MAP = {
 
     # Verified Certificates
     'WHAT_IS_VERIFIED_CERT': 'verified-certificate',
+}
+
+############################# SOCIAL MEDIA SHARING #############################
+# Social Media Sharing on Student Dashboard
+SOCIAL_SHARING_SETTINGS = {
+    # Note: Ensure 'CUSTOM_COURSE_URLS' has a matching value in cms/envs/common.py
+    'CUSTOM_COURSE_URLS': False,
+    'DASHBOARD_FACEBOOK': False,
+    'CERTIFICATE_FACEBOOK': False,
+    'CERTIFICATE_FACEBOOK_TEXT': None,
+    'CERTIFICATE_TWITTER': False,
+    'CERTIFICATE_TWITTER_TEXT': None,
+    'DASHBOARD_TWITTER': False,
+    'DASHBOARD_TWITTER_TEXT': None
 }
 
 ################# Social Media Footer Links #######################
@@ -2105,7 +2122,7 @@ if FEATURES.get('CLASS_DASHBOARD'):
     INSTALLED_APPS += ('class_dashboard',)
 
 ################ Enable credit eligibility feature ####################
-ENABLE_CREDIT_ELIGIBILITY = False
+ENABLE_CREDIT_ELIGIBILITY = True
 FEATURES['ENABLE_CREDIT_ELIGIBILITY'] = ENABLE_CREDIT_ELIGIBILITY
 
 ######################## CAS authentication ###########################
@@ -2560,6 +2577,7 @@ ECOMMERCE_PUBLIC_URL_ROOT = None
 ECOMMERCE_API_URL = None
 ECOMMERCE_API_SIGNING_KEY = None
 ECOMMERCE_API_TIMEOUT = 5
+ECOMMERCE_SERVICE_WORKER_USERNAME = 'ecommerce_worker'
 
 # Reverification checkpoint name pattern
 CHECKPOINT_PATTERN = r'(?P<checkpoint_name>[^/]+)'

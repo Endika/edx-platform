@@ -7,10 +7,12 @@ import time
 
 from dateutil.parser import parse
 import ddt
+from flaky import flaky
 from nose.plugins.attrib import attr
+from selenium.common.exceptions import TimeoutException
 from uuid import uuid4
 
-from ..helpers import EventsTestMixin, UniqueCourseTest
+from ..helpers import get_modal_alert, EventsTestMixin, UniqueCourseTest
 from ...fixtures import LMS_BASE_URL
 from ...fixtures.course import CourseFixture
 from ...fixtures.discussion import (
@@ -60,17 +62,34 @@ class TeamsTabBase(EventsTestMixin, UniqueCourseTest):
                 'language': 'aa',
                 'country': 'AF'
             }
-            response = self.course_fixture.session.post(
-                LMS_BASE_URL + '/api/team/v0/teams/',
-                data=json.dumps(team),
-                headers=self.course_fixture.headers
-            )
+            teams.append(self.post_team_data(team))
             # Sadly, this sleep is necessary in order to ensure that
             # sorting by last_activity_at works correctly when running
             # in Jenkins.
             time.sleep(time_between_creation)
-            teams.append(json.loads(response.text))
         return teams
+
+    def post_team_data(self, team_data):
+        """Given a JSON representation of a team, post it to the server."""
+        response = self.course_fixture.session.post(
+            LMS_BASE_URL + '/api/team/v0/teams/',
+            data=json.dumps(team_data),
+            headers=self.course_fixture.headers
+        )
+        self.assertEqual(response.status_code, 200)
+        return json.loads(response.text)
+
+    def create_memberships(self, num_memberships, team_id):
+        """Create `num_memberships` users and assign them to `team_id`. The
+        last user created becomes the current user."""
+        memberships = []
+        for __ in xrange(num_memberships):
+            user_info = AutoAuthPage(self.browser, course_id=self.course_id).visit().user_info
+            memberships.append(user_info)
+            self.create_membership(user_info['username'], team_id)
+        #pylint: disable=attribute-defined-outside-init
+        self.user_info = memberships[-1]
+        return memberships
 
     def create_membership(self, username, team_id):
         """Assign `username` to `team_id`."""
@@ -333,6 +352,18 @@ class MyTeamsTest(TeamsTabBase):
             self.my_teams_page.visit()
         self.verify_teams(self.my_teams_page, teams)
 
+    def test_multiple_team_members(self):
+        """
+        Scenario: Visiting the My Teams page when user is a member of a team should display the teams.
+        Given I am a member of a team with multiple members
+        When I visit the My Teams page
+        Then I should see the correct number of team members on my membership
+        """
+        teams = self.create_teams(self.topic, 1)
+        self.create_memberships(4, teams[0]['id'])
+        self.my_teams_page.visit()
+        self.assertEqual(self.my_teams_page.team_memberships[0], '4 / 10 Members')
+
 
 @attr('shard_5')
 @ddt.ddt
@@ -394,13 +425,13 @@ class BrowseTopicsTest(TeamsTabBase):
         browse_teams_page.click_create_team_link()
         create_team_page = TeamManagementPage(self.browser, self.course_id, topic)
         create_team_page.value_for_text_field(field_id='name', value='Team Name', press_enter=False)
-        create_team_page.value_for_textarea_field(
+        create_team_page.set_value_for_textarea_field(
             field_id='description',
             value='Team description.'
         )
         create_team_page.submit_form()
         team_page = TeamPage(self.browser, self.course_id)
-        self.assertTrue(team_page.is_browser_on_page)
+        self.assertTrue(team_page.is_browser_on_page())
         team_page.click_all_topics()
         self.assertTrue(self.topics_page.is_browser_on_page())
         self.topics_page.wait_for_ajax()
@@ -782,6 +813,7 @@ class BrowseTeamsWithinTopicTest(TeamsTabBase):
         self.browse_teams_page.click_browse_all_teams_link()
         self.assertTrue(self.topics_page.is_browser_on_page())
 
+    @flaky  # TODO: fix flaky test. See TNL-3489
     def test_search(self):
         """
         Scenario: User should be able to search for a team
@@ -837,6 +869,26 @@ class BrowseTeamsWithinTopicTest(TeamsTabBase):
         }]
         with self.assert_events_match_during(self.only_team_events, expected_events=events):
             self.browse_teams_page.visit()
+
+    def test_team_name_xss(self):
+        """
+        Scenario: Team names should be HTML-escaped on the teams page
+        Given I am enrolled in a course with teams enabled
+        When I visit the Teams page for a topic, with a team name containing JS code
+        Then I should not see any alerts
+        """
+        self.post_team_data({
+            'course_id': self.course_id,
+            'topic_id': self.topic['id'],
+            'name': '<script>alert("XSS")</script>',
+            'description': 'Description',
+            'language': 'aa',
+            'country': 'AF'
+        })
+        with self.assertRaises(TimeoutException):
+            self.browser.get(self.browse_teams_page.url)
+            alert = get_modal_alert(self.browser)
+            alert.accept()
 
 
 @attr('shard_5')
@@ -908,7 +960,7 @@ class TeamFormActions(TeamsTabBase):
             value=self.TEAMS_NAME,
             press_enter=False
         )
-        self.team_management_page.value_for_textarea_field(
+        self.team_management_page.set_value_for_textarea_field(
             field_id='description',
             value=self.TEAM_DESCRIPTION
         )

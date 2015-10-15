@@ -155,7 +155,8 @@ class EntranceExamTestCases(LoginEnrollmentTestCase, ModuleStoreTestCase):
                         }
                     ],
                     'url_name': u'Entrance_Exam_Section_-_Chapter_1',
-                    'display_name': u'Entrance Exam Section - Chapter 1'
+                    'display_name': u'Entrance Exam Section - Chapter 1',
+                    'display_id': u'entrance-exam-section-chapter-1',
                 }
             ]
         )
@@ -182,19 +183,22 @@ class EntranceExamTestCases(LoginEnrollmentTestCase, ModuleStoreTestCase):
                         }
                     ],
                     'url_name': u'Overview',
-                    'display_name': u'Overview'
+                    'display_name': u'Overview',
+                    'display_id': u'overview'
                 },
                 {
                     'active': False,
                     'sections': [],
                     'url_name': u'Week_1',
-                    'display_name': u'Week 1'
+                    'display_name': u'Week 1',
+                    'display_id': u'week-1'
                 },
                 {
                     'active': False,
                     'sections': [],
                     'url_name': u'Instructor',
-                    'display_name': u'Instructor'
+                    'display_name': u'Instructor',
+                    'display_id': u'instructor'
                 },
                 {
                     'active': True,
@@ -209,7 +213,8 @@ class EntranceExamTestCases(LoginEnrollmentTestCase, ModuleStoreTestCase):
                         }
                     ],
                     'url_name': u'Entrance_Exam_Section_-_Chapter_1',
-                    'display_name': u'Entrance Exam Section - Chapter 1'
+                    'display_name': u'Entrance Exam Section - Chapter 1',
+                    'display_id': u'entrance-exam-section-chapter-1'
                 }
             ]
         )
@@ -310,6 +315,28 @@ class EntranceExamTestCases(LoginEnrollmentTestCase, ModuleStoreTestCase):
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, 200)
         self.assertIn('To access course materials, you must score', resp.content)
+
+    def test_entrance_exam_requirement_message_with_correct_percentage(self):
+        """
+        Unit Test: entrance exam requirement message should be present in response
+        and percentage of required score should be rounded as expected
+        """
+        minimum_score_pct = 29
+        self.course.entrance_exam_minimum_score_pct = float(minimum_score_pct) / 100
+        modulestore().update_item(self.course, self.request.user.id)  # pylint: disable=no-member
+        url = reverse(
+            'courseware_section',
+            kwargs={
+                'course_id': unicode(self.course.id),
+                'chapter': self.entrance_exam.location.name,
+                'section': self.exam_1.location.name
+            }
+        )
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn('To access course materials, you must score {required_score}% or higher'.format(
+            required_score=minimum_score_pct
+        ), resp.content)
 
     def test_entrance_exam_requirement_message_hidden(self):
         """

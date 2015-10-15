@@ -70,6 +70,7 @@ class DiscussionAPIViewTestMixin(CommentsServiceMockMixin, UrlResetMixin):
         )
 
 
+@mock.patch.dict("django.conf.settings.FEATURES", {"ENABLE_DISCUSSION_SERVICE": True})
 class CourseViewTest(DiscussionAPIViewTestMixin, ModuleStoreTestCase):
     """Tests for CourseView"""
     def setUp(self):
@@ -103,6 +104,7 @@ class CourseViewTest(DiscussionAPIViewTestMixin, ModuleStoreTestCase):
         )
 
 
+@mock.patch.dict("django.conf.settings.FEATURES", {"ENABLE_DISCUSSION_SERVICE": True})
 class CourseTopicsViewTest(DiscussionAPIViewTestMixin, ModuleStoreTestCase):
     """Tests for CourseTopicsView"""
     def setUp(self):
@@ -139,6 +141,7 @@ class CourseTopicsViewTest(DiscussionAPIViewTestMixin, ModuleStoreTestCase):
 
 @ddt.ddt
 @httpretty.activate
+@mock.patch.dict("django.conf.settings.FEATURES", {"ENABLE_DISCUSSION_SERVICE": True})
 class ThreadViewSetListTest(DiscussionAPIViewTestMixin, ModuleStoreTestCase):
     """Tests for ThreadViewSet list"""
     def setUp(self):
@@ -215,7 +218,7 @@ class ThreadViewSetListTest(DiscussionAPIViewTestMixin, ModuleStoreTestCase):
             "non_endorsed_comment_list_url": None,
             "editable_fields": ["abuse_flagged", "following", "voted"],
             "read": False,
-            "has_endorsed": False
+            "has_endorsed": False,
         }]
         self.register_get_threads_response(source_threads, page=1, num_pages=2)
         response = self.client.get(self.url, {"course_id": unicode(self.course.id)})
@@ -232,7 +235,7 @@ class ThreadViewSetListTest(DiscussionAPIViewTestMixin, ModuleStoreTestCase):
         self.assert_last_query_params({
             "user_id": [unicode(self.user.id)],
             "course_id": [unicode(self.course.id)],
-            "sort_key": ["date"],
+            "sort_key": ["activity"],
             "sort_order": ["desc"],
             "page": ["1"],
             "per_page": ["10"],
@@ -254,7 +257,7 @@ class ThreadViewSetListTest(DiscussionAPIViewTestMixin, ModuleStoreTestCase):
         self.assert_last_query_params({
             "user_id": [unicode(self.user.id)],
             "course_id": [unicode(self.course.id)],
-            "sort_key": ["date"],
+            "sort_key": ["activity"],
             "sort_order": ["desc"],
             "recursive": ["False"],
             "page": ["1"],
@@ -277,7 +280,7 @@ class ThreadViewSetListTest(DiscussionAPIViewTestMixin, ModuleStoreTestCase):
         self.assert_last_query_params({
             "user_id": [unicode(self.user.id)],
             "course_id": [unicode(self.course.id)],
-            "sort_key": ["date"],
+            "sort_key": ["activity"],
             "sort_order": ["desc"],
             "page": ["18"],
             "per_page": ["4"],
@@ -299,7 +302,7 @@ class ThreadViewSetListTest(DiscussionAPIViewTestMixin, ModuleStoreTestCase):
         self.assert_last_query_params({
             "user_id": [unicode(self.user.id)],
             "course_id": [unicode(self.course.id)],
-            "sort_key": ["date"],
+            "sort_key": ["activity"],
             "sort_order": ["desc"],
             "page": ["1"],
             "per_page": ["10"],
@@ -330,7 +333,7 @@ class ThreadViewSetListTest(DiscussionAPIViewTestMixin, ModuleStoreTestCase):
         )
 
     @ddt.data(
-        ("last_activity_at", "date"),
+        ("last_activity_at", "activity"),
         ("comment_count", "comments"),
         ("vote_count", "votes")
     )
@@ -378,7 +381,7 @@ class ThreadViewSetListTest(DiscussionAPIViewTestMixin, ModuleStoreTestCase):
         self.assert_last_query_params({
             "user_id": [unicode(self.user.id)],
             "course_id": [unicode(self.course.id)],
-            "sort_key": ["date"],
+            "sort_key": ["activity"],
             "recursive": ["False"],
             "page": ["1"],
             "per_page": ["10"],
@@ -388,6 +391,7 @@ class ThreadViewSetListTest(DiscussionAPIViewTestMixin, ModuleStoreTestCase):
 
 @httpretty.activate
 @disable_signal(api, 'thread_created')
+@mock.patch.dict("django.conf.settings.FEATURES", {"ENABLE_DISCUSSION_SERVICE": True})
 class ThreadViewSetCreateTest(DiscussionAPIViewTestMixin, ModuleStoreTestCase):
     """Tests for ThreadViewSet create"""
     def setUp(self):
@@ -436,7 +440,7 @@ class ThreadViewSetCreateTest(DiscussionAPIViewTestMixin, ModuleStoreTestCase):
             "non_endorsed_comment_list_url": None,
             "editable_fields": ["abuse_flagged", "following", "raw_body", "title", "topic_id", "type", "voted"],
             "read": False,
-            "has_endorsed": False
+            "has_endorsed": False,
         }
         response = self.client.post(
             self.url,
@@ -480,6 +484,7 @@ class ThreadViewSetCreateTest(DiscussionAPIViewTestMixin, ModuleStoreTestCase):
 
 @httpretty.activate
 @disable_signal(api, 'thread_edited')
+@mock.patch.dict("django.conf.settings.FEATURES", {"ENABLE_DISCUSSION_SERVICE": True})
 class ThreadViewSetPartialUpdateTest(DiscussionAPIViewTestMixin, ModuleStoreTestCase):
     """Tests for ThreadViewSet partial_update"""
     def setUp(self):
@@ -530,7 +535,7 @@ class ThreadViewSetPartialUpdateTest(DiscussionAPIViewTestMixin, ModuleStoreTest
             "non_endorsed_comment_list_url": None,
             "editable_fields": ["abuse_flagged", "following", "raw_body", "title", "topic_id", "type", "voted"],
             "read": False,
-            "has_endorsed": False
+            "has_endorsed": False,
         }
         response = self.client.patch(  # pylint: disable=no-member
             self.url,
@@ -571,7 +576,7 @@ class ThreadViewSetPartialUpdateTest(DiscussionAPIViewTestMixin, ModuleStoreTest
             content_type="application/json"
         )
         expected_response_data = {
-            "field_errors": {"title": {"developer_message": "This field is required."}}
+            "field_errors": {"title": {"developer_message": "This field may not be blank."}}
         }
         self.assertEqual(response.status_code, 400)
         response_data = json.loads(response.content)
@@ -580,6 +585,7 @@ class ThreadViewSetPartialUpdateTest(DiscussionAPIViewTestMixin, ModuleStoreTest
 
 @httpretty.activate
 @disable_signal(api, 'thread_deleted')
+@mock.patch.dict("django.conf.settings.FEATURES", {"ENABLE_DISCUSSION_SERVICE": True})
 class ThreadViewSetDeleteTest(DiscussionAPIViewTestMixin, ModuleStoreTestCase):
     """Tests for ThreadViewSet delete"""
     def setUp(self):
@@ -613,6 +619,7 @@ class ThreadViewSetDeleteTest(DiscussionAPIViewTestMixin, ModuleStoreTestCase):
 
 
 @httpretty.activate
+@mock.patch.dict("django.conf.settings.FEATURES", {"ENABLE_DISCUSSION_SERVICE": True})
 class CommentViewSetListTest(DiscussionAPIViewTestMixin, ModuleStoreTestCase):
     """Tests for CommentViewSet list"""
     def setUp(self):
@@ -690,7 +697,7 @@ class CommentViewSetListTest(DiscussionAPIViewTestMixin, ModuleStoreTestCase):
             200,
             {
                 "results": expected_comments,
-                "next": "http://testserver/api/discussion/v1/comments/?thread_id={}&page=2".format(
+                "next": "http://testserver/api/discussion/v1/comments/?page=2&thread_id={}".format(
                     self.thread_id
                 ),
                 "previous": None,
@@ -744,6 +751,7 @@ class CommentViewSetListTest(DiscussionAPIViewTestMixin, ModuleStoreTestCase):
 
 @httpretty.activate
 @disable_signal(api, 'comment_deleted')
+@mock.patch.dict("django.conf.settings.FEATURES", {"ENABLE_DISCUSSION_SERVICE": True})
 class CommentViewSetDeleteTest(DiscussionAPIViewTestMixin, ModuleStoreTestCase):
     """Tests for ThreadViewSet delete"""
 
@@ -785,6 +793,7 @@ class CommentViewSetDeleteTest(DiscussionAPIViewTestMixin, ModuleStoreTestCase):
 
 @httpretty.activate
 @disable_signal(api, 'comment_created')
+@mock.patch.dict("django.conf.settings.FEATURES", {"ENABLE_DISCUSSION_SERVICE": True})
 class CommentViewSetCreateTest(DiscussionAPIViewTestMixin, ModuleStoreTestCase):
     """Tests for CommentViewSet create"""
     def setUp(self):
@@ -869,6 +878,7 @@ class CommentViewSetCreateTest(DiscussionAPIViewTestMixin, ModuleStoreTestCase):
 
 
 @disable_signal(api, 'comment_edited')
+@mock.patch.dict("django.conf.settings.FEATURES", {"ENABLE_DISCUSSION_SERVICE": True})
 class CommentViewSetPartialUpdateTest(DiscussionAPIViewTestMixin, ModuleStoreTestCase):
     """Tests for CommentViewSet partial_update"""
     def setUp(self):
@@ -946,7 +956,7 @@ class CommentViewSetPartialUpdateTest(DiscussionAPIViewTestMixin, ModuleStoreTes
             content_type="application/json"
         )
         expected_response_data = {
-            "field_errors": {"raw_body": {"developer_message": "This field is required."}}
+            "field_errors": {"raw_body": {"developer_message": "This field may not be blank."}}
         }
         self.assertEqual(response.status_code, 400)
         response_data = json.loads(response.content)
@@ -954,6 +964,7 @@ class CommentViewSetPartialUpdateTest(DiscussionAPIViewTestMixin, ModuleStoreTes
 
 
 @httpretty.activate
+@mock.patch.dict("django.conf.settings.FEATURES", {"ENABLE_DISCUSSION_SERVICE": True})
 class ThreadViewSetRetrieveTest(DiscussionAPIViewTestMixin, ModuleStoreTestCase):
     """Tests for ThreadViewSet Retrieve"""
     def setUp(self):
@@ -1001,7 +1012,8 @@ class ThreadViewSetRetrieveTest(DiscussionAPIViewTestMixin, ModuleStoreTestCase)
             "read": False,
             "has_endorsed": False,
             "id": "test_thread",
-            "type": "discussion"
+            "type": "discussion",
+            "response_count": 0,
         }
         self.register_get_thread_response(cs_thread)
         response = self.client.get(self.url)

@@ -488,21 +488,18 @@ class DashboardTest(ModuleStoreTestCase):
         self.assertContains(response, expected_url)
 
     @unittest.skipUnless(settings.ROOT_URLCONF == 'lms.urls', 'Test only valid in lms')
-    @ddt.data((ModuleStoreEnum.Type.mongo, 1), (ModuleStoreEnum.Type.split, 3))
-    @ddt.unpack
-    def test_dashboard_metadata_caching(self, modulestore_type, expected_mongo_calls):
+    @ddt.data(ModuleStoreEnum.Type.mongo, ModuleStoreEnum.Type.split)
+    def test_dashboard_metadata_caching(self, modulestore_type):
         """
         Check that the student dashboard makes use of course metadata caching.
 
-        After enrolling a student in a course, that course's metadata should be
-        cached as a CourseOverview. The student dashboard should never have to make
-        calls to the modulestore.
+        After creating a course, that course's metadata should be cached as a
+        CourseOverview. The student dashboard should never have to make calls to
+        the modulestore.
 
         Arguments:
             modulestore_type (ModuleStoreEnum.Type): Type of modulestore to create
                 test course in.
-            expected_mongo_calls (int >=0): Number of MongoDB queries expected for
-                a single call to the module store.
 
         Note to future developers:
             If you break this test so that the "check_mongo_calls(0)" fails,
@@ -512,11 +509,11 @@ class DashboardTest(ModuleStoreTestCase):
             CourseDescriptor isn't necessary.
         """
         # Create a course and log in the user.
-        test_course = CourseFactory.create(default_store=modulestore_type)
+        # Creating a new course will trigger a publish event and the course will be cached
+        test_course = CourseFactory.create(default_store=modulestore_type, emit_signals=True)
         self.client.login(username="jack", password="test")
 
-        # Enrolling the user in the course will result in a modulestore query.
-        with check_mongo_calls(expected_mongo_calls):
+        with check_mongo_calls(0):
             CourseEnrollment.enroll(self.user, test_course.id)
 
         # Subsequent requests will only result in SQL queries to load the
@@ -539,6 +536,32 @@ class DashboardTest(ModuleStoreTestCase):
         # But other links are hidden in the navigation
         self.assertNotContains(response, "How it Works")
         self.assertNotContains(response, "Schools & Partners")
+
+    def test_course_mode_info_with_honor_enrollment(self):
+        """It will be true only if enrollment mode is honor and course has verified mode."""
+        course_mode_info = self._enrollment_with_complete_course('honor')
+        self.assertTrue(course_mode_info['show_upsell'])
+        self.assertEquals(course_mode_info['days_for_upsell'], 1)
+
+    @ddt.data('verified', 'credit')
+    def test_course_mode_info_with_different_enrollments(self, enrollment_mode):
+        """If user enrollment mode is either verified or credit then show_upsell
+        will be always false.
+        """
+        course_mode_info = self._enrollment_with_complete_course(enrollment_mode)
+        self.assertFalse(course_mode_info['show_upsell'])
+        self.assertIsNone(course_mode_info['days_for_upsell'])
+
+    def _enrollment_with_complete_course(self, enrollment_mode):
+        """"Dry method for course enrollment."""
+        CourseModeFactory.create(
+            course_id=self.course.id,
+            mode_slug='verified',
+            mode_display_name='Verified',
+            expiration_datetime=datetime.now(pytz.UTC) + timedelta(days=1)
+        )
+        enrollment = CourseEnrollment.enroll(self.user, self.course.id, mode=enrollment_mode)
+        return complete_course_mode_info(self.course.id, enrollment)
 
 
 class UserSettingsEventTestMixin(EventTestMixin):

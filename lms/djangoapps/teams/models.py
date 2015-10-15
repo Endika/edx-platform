@@ -3,7 +3,6 @@
 from datetime import datetime
 from uuid import uuid4
 import pytz
-from datetime import datetime
 from model_utils import FieldTracker
 
 from django.core.exceptions import ObjectDoesNotExist
@@ -28,6 +27,7 @@ from xmodule_django.models import CourseKeyField
 from util.model_utils import slugify
 from student.models import LanguageField, CourseEnrollment
 from .errors import AlreadyOnTeamInCourse, NotEnrolledInCourseForTeam, ImmutableMembershipFieldException
+from teams.utils import emit_team_event
 from teams import TEAM_DISCUSSION_CONTEXT
 
 
@@ -130,6 +130,9 @@ class CourseTeam(models.Model):
 
         return course_team
 
+    def __repr__(self):
+        return "<CourseTeam team_id={0.team_id}>".format(self)
+
     def add_user(self, user):
         """Adds the given user to the CourseTeam."""
         if not CourseEnrollment.is_enrolled(user, self.course_id):
@@ -172,7 +175,9 @@ class CourseTeamMembership(models.Model):
             # an immutable field.
             current_value = getattr(self, name, None)
             if current_value is not None:
-                raise ImmutableMembershipFieldException
+                raise ImmutableMembershipFieldException(
+                    "Field %r shouldn't change from %r to %r" % (name, current_value, value)
+                )
         super(CourseTeamMembership, self).__setattr__(name, value)
 
     def save(self, *args, **kwargs):
@@ -247,3 +252,6 @@ class CourseTeamMembership(models.Model):
         membership.team.last_activity_at = now
         membership.team.save()
         membership.save()
+        emit_team_event('edx.team.activity_updated', membership.team.course_id, {
+            'team_id': membership.team_id,
+        })

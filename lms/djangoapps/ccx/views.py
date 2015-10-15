@@ -131,7 +131,7 @@ def dashboard(request, course, ccx=None):
         context['schedule'] = json.dumps(schedule, indent=4)
         context['save_url'] = reverse(
             'save_ccx', kwargs={'course_id': ccx_locator})
-        context['ccx_members'] = CourseEnrollment.objects.filter(course_id=ccx_locator)
+        context['ccx_members'] = CourseEnrollment.objects.filter(course_id=ccx_locator, is_active=True)
         context['gradebook_url'] = reverse(
             'ccx_gradebook', kwargs={'course_id': ccx_locator})
         context['grades_csv_url'] = reverse(
@@ -254,7 +254,7 @@ def save_ccx(request, course, ccx=None):
     grader = policy['GRADER']
     for section in grader:
         count = graded.get(section.get('type'), 0)
-        if count < section['min_count']:
+        if count < section.get('min_count', 0):
             changed = True
             section['min_count'] = count
     if changed:
@@ -347,8 +347,13 @@ def get_ccx_schedule(course, ccx):
         Recursive generator function which yields CCX schedule nodes.
         We convert dates to string to get them ready for use by the js date
         widgets, which use text inputs.
+        Visits students visible nodes only; nodes children of hidden ones
+        are skipped as well.
         """
         for child in node.get_children():
+            # in case the children are visible to staff only, skip them
+            if child.visible_to_staff_only:
+                continue
             start = get_override_for_ccx(ccx, child, 'start', None)
             if start:
                 start = str(start)[:-9]
@@ -440,6 +445,30 @@ def ccx_invite(request, course, ccx=None):
     return redirect(url)
 
 
+def validate_student_email(email):
+    """
+    validate student's email id
+    """
+    error_message = None
+    try:
+        validate_email(email)
+    except ValidationError:
+        log.info(
+            'Invalid user name or email when trying to enroll student: %s',
+            email
+        )
+        if email:
+            error_message = _(
+                'Could not find a user with name or email "{email}" '
+            ).format(email=email)
+        else:
+            error_message = _(
+                'Please enter a valid username or email.'
+            )
+
+    return error_message
+
+
 @ensure_csrf_cookie
 @cache_control(no_cache=True, no_store=True, must_revalidate=True)
 @coach_dashboard
@@ -452,29 +481,32 @@ def ccx_student_management(request, course, ccx=None):
     action = request.POST.get('student-action', None)
     student_id = request.POST.get('student-id', '')
     user = email = None
+    error_message = ""
+    course_key = CCXLocator.from_course_locator(course.id, ccx.id)
     try:
         user = get_student_from_identifier(student_id)
     except User.DoesNotExist:
         email = student_id
+        error_message = validate_student_email(email)
+        if email and not error_message:
+            error_message = _(
+                'Could not find a user with name or email "{email}" '
+            ).format(email=email)
     else:
         email = user.email
+        error_message = validate_student_email(email)
 
-    course_key = CCXLocator.from_course_locator(course.id, ccx.id)
-    try:
-        validate_email(email)
+    if error_message is None:
         if action == 'add':
             # by decree, no emails sent to students added this way
             # by decree, any students added this way are auto_enrolled
             enroll_email(course_key, email, auto_enroll=True, email_students=False)
         elif action == 'revoke':
             unenroll_email(course_key, email, email_students=False)
-    except ValidationError:
-        log.info('Invalid user name or email when trying to enroll student: %s', email)
+    else:
+        messages.error(request, error_message)
 
-    url = reverse(
-        'ccx_coach_dashboard',
-        kwargs={'course_id': course_key}
-    )
+    url = reverse('ccx_coach_dashboard', kwargs={'course_id': course_key})
     return redirect(url)
 
 

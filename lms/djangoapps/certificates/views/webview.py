@@ -14,6 +14,7 @@ from django.utils.translation import ugettext as _
 from django.core.urlresolvers import reverse
 
 from courseware.courses import course_image_url
+from courseware.access import has_access
 from edxmako.shortcuts import render_to_response
 from edxmako.template import Template
 from eventtracking import tracker
@@ -89,7 +90,7 @@ def _update_certificate_context(context, course, user, user_certificate):
     user_fullname = user.profile.name
     platform_name = microsite.get_value("platform_name", settings.PLATFORM_NAME)
     certificate_type = context.get('certificate_type')
-    partner_short_name = course.org
+    partner_short_name = course.display_organization if course.display_organization else course.org
     partner_long_name = None
     organizations = organization_api.get_course_organizations(course_id=course.id)
     if organizations:
@@ -110,7 +111,7 @@ def _update_certificate_context(context, course, user, user_certificate):
     course_title_from_cert = context['certificate_data'].get('course_title', '')
     accomplishment_copy_course_name = course_title_from_cert if course_title_from_cert else course.display_name
     context['accomplishment_copy_course_name'] = accomplishment_copy_course_name
-    share_settings = settings.FEATURES.get('SOCIAL_SHARING_SETTINGS', {})
+    share_settings = getattr(settings, 'SOCIAL_SHARING_SETTINGS', {})
     context['facebook_share_enabled'] = share_settings.get('CERTIFICATE_FACEBOOK', False)
     context['facebook_app_id'] = getattr(settings, "FACEBOOK_APP_ID", None)
     context['facebook_share_text'] = share_settings.get(
@@ -128,7 +129,8 @@ def _update_certificate_context(context, course, user, user_certificate):
         )
     )
 
-    context['course_number'] = course.number
+    course_number = course.display_coursenumber if course.display_coursenumber else course.number
+    context['course_number'] = course_number
     try:
         badge = BadgeAssertion.objects.get(user=user, course_id=course.location.course_key)
     except BadgeAssertion.DoesNotExist:
@@ -238,13 +240,13 @@ def _update_certificate_context(context, course, user, user_certificate):
         platform_name=platform_name,
         user_name=user_fullname,
         partner_short_name=partner_short_name,
-        course_number=course.number
+        course_number=course_number
     )
 
     # Translators:  This text is bound to the HTML 'title' element of the page and appears in the browser title bar
     context['document_title'] = _("{partner_short_name} {course_number} Certificate | {platform_name}").format(
         partner_short_name=partner_short_name,
-        course_number=course.number,
+        course_number=course_number,
         platform_name=platform_name
     )
 
@@ -287,6 +289,7 @@ def render_html_view(request, user_id, course_id):
     context = {}
     context['platform_name'] = microsite.get_value("platform_name", settings.PLATFORM_NAME)
     context['course_id'] = course_id
+    preview_mode = request.GET.get('preview', None)
 
     # Update the view context with the default ConfigurationModel settings
     configuration = CertificateHtmlViewConfiguration.get_config()
@@ -334,17 +337,27 @@ def render_html_view(request, user_id, course_id):
             raise CourseDoesNotExist
 
         # Attempt to load the user's generated certificate data
-        user_certificate = GeneratedCertificate.objects.get(
-            user=user,
-            course_id=course_key
-        )
+        if preview_mode:
+            user_certificate = GeneratedCertificate.objects.get(
+                user=user,
+                course_id=course_key,
+                mode=preview_mode
+            )
+        else:
+            user_certificate = GeneratedCertificate.objects.get(
+                user=user,
+                course_id=course_key
+            )
 
     # If there's no generated certificate data for this user, we need to see if we're in 'preview' mode...
     # If we are, we'll need to create a mock version of the user_certificate container for previewing
     except GeneratedCertificate.DoesNotExist:
-        if request.GET.get('preview', None):
+        if preview_mode and (
+            has_access(request.user, 'instructor', course)
+            or has_access(request.user, 'staff', course)
+        ):
             user_certificate = GeneratedCertificate(
-                mode=request.GET.get('preview'),
+                mode=preview_mode,
                 verify_uuid=unicode(uuid4().hex),
                 modified_date=datetime.now().date()
             )
@@ -383,7 +396,7 @@ def render_html_view(request, user_id, course_id):
     # Get the active certificate configuration for this course
     # If we do not have an active certificate, we'll need to send the user to the "Invalid" screen
     # Passing in the 'preview' parameter, if specified, will return a configuration, if defined
-    active_configuration = get_active_web_certificate(course, request.GET.get('preview'))
+    active_configuration = get_active_web_certificate(course, preview_mode)
     if active_configuration is None:
         return render_to_response(invalid_template_path, context)
     else:

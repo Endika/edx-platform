@@ -165,10 +165,6 @@ ${fragment.foot_html()}
 
 % if disable_accordion is UNDEFINED or not disable_accordion:
     <div class="course-index">
-      <header id="open_close_accordion">
-        <a href="#">${_("close")}</a>
-      </header>
-
       % if settings.FEATURES.get('ENABLE_COURSEWARE_SEARCH'):
         <div id="courseware-search-bar" class="search-bar courseware-search-bar" role="search" aria-label="Course">
           <form>
@@ -186,8 +182,8 @@ ${fragment.foot_html()}
         </div>
       % endif
 
-      <div id="accordion" style="display: none">
-        <nav aria-label="${_('Course Navigation')}">
+      <div class="accordion">
+        <nav class="course-navigation" aria-label="${_('Course')}">
           % if accordion.strip():
             ${accordion}
           % else:
@@ -206,14 +202,14 @@ ${fragment.foot_html()}
             <p class="sequential-status-message">
                 ${_('To access course materials, you must score {required_score}% or higher on this \
                 exam. Your current score is {current_score}%.').format(
-                    required_score=int(course.entrance_exam_minimum_score_pct * 100),
-                    current_score=int(entrance_exam_current_score * 100)
+                    required_score=int(round(course.entrance_exam_minimum_score_pct * 100)),
+                    current_score=int(round(entrance_exam_current_score * 100))
                 )}
             </p>
             % else:
               <p class="sequential-status-message">
                 ${_('Your score is {current_score}%. You have passed the entrance exam.').format(
-                    current_score=int(entrance_exam_current_score * 100)
+                    current_score=int(round(entrance_exam_current_score * 100))
                 )}
             </p>
             % endif

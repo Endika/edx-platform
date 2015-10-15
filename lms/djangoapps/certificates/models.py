@@ -109,7 +109,9 @@ class CertificateWhitelist(models.Model):
 
 class GeneratedCertificate(models.Model):
 
-    MODES = Choices('verified', 'honor', 'audit')
+    MODES = Choices('verified', 'honor', 'audit', 'professional', 'no-id-professional')
+
+    VERIFIED_CERTS_MODES = [CourseMode.VERIFIED, CourseMode.CREDIT_MODE]
 
     user = models.ForeignKey(User)
     course_id = CourseKeyField(max_length=255, blank=True, default=None)

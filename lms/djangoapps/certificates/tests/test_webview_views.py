@@ -12,6 +12,7 @@ from django.test.utils import override_settings
 
 from openedx.core.lib.tests.assertions.events import assert_event_matches
 from student.tests.factories import UserFactory, CourseEnrollmentFactory
+from student.roles import CourseStaffRole
 from track.tests import EventTrackingTestCase
 from xmodule.modulestore.tests.factories import CourseFactory
 from xmodule.modulestore.tests.django_utils import ModuleStoreTestCase
@@ -97,7 +98,7 @@ class CertificatesViewsTests(ModuleStoreTestCase, EventTrackingTestCase):
                 'title': 'Signatory_Title ' + str(i),
                 'organization': 'Signatory_Organization ' + str(i),
                 'signature_image_path': '/static/certificates/images/demo-sig{}.png'.format(i),
-                'id': i,
+                'id': i
             } for i in xrange(signatory_count)
 
         ]
@@ -253,6 +254,27 @@ class CertificatesViewsTests(ModuleStoreTestCase, EventTrackingTestCase):
         self.assertIn('refundable course', response.content)
 
     @override_settings(FEATURES=FEATURES_WITH_CERTS_ENABLED)
+    def test_course_display_overrides(self):
+        """
+        Tests if `Course Number Display String` or `Course Organization Display` is set for a course
+        in advance settings
+        Then web certificate should display that course number and course org set in advance
+        settings instead of original course number and course org.
+        """
+        test_url = get_certificate_url(
+            user_id=self.user.id,
+            course_id=unicode(self.course.id)
+        )
+        self._add_course_certificates(count=1, signatory_count=2)
+        self.course.display_coursenumber = "overridden_number"
+        self.course.display_organization = "overridden_org"
+        self.store.update_item(self.course, self.user.id)
+
+        response = self.client.get(test_url)
+        self.assertIn('overridden_number', response.content)
+        self.assertIn('overridden_org', response.content)
+
+    @override_settings(FEATURES=FEATURES_WITH_CERTS_ENABLED)
     def test_certificate_view_without_org_logo(self):
         test_url = get_certificate_url(
             user_id=self.user.id,
@@ -347,6 +369,13 @@ class CertificatesViewsTests(ModuleStoreTestCase, EventTrackingTestCase):
             course_id=unicode(self.course.id)
         )
         response = self.client.get(test_url + '?preview=honor')
+        #accessing certificate web view in preview mode without
+        # staff or instructor access should show invalid certificate
+        self.assertIn('Cannot Find Certificate', response.content)
+
+        CourseStaffRole(self.course.id).add_users(self.user)
+
+        response = self.client.get(test_url + '?preview=honor')
         self.assertNotIn(self.course.display_name, response.content)
         self.assertIn('course_title_0', response.content)
         self.assertIn('Signatory_Title 0', response.content)
@@ -354,6 +383,27 @@ class CertificatesViewsTests(ModuleStoreTestCase, EventTrackingTestCase):
         # mark certificate inactive but accessing in preview mode.
         self._add_course_certificates(count=1, signatory_count=2, is_active=False)
         response = self.client.get(test_url + '?preview=honor')
+        self.assertNotIn(self.course.display_name, response.content)
+        self.assertIn('course_title_0', response.content)
+        self.assertIn('Signatory_Title 0', response.content)
+
+    @override_settings(FEATURES=FEATURES_WITH_CERTS_ENABLED)
+    def test_render_html_view_with_preview_mode_when_user_already_has_cert(self):
+        """
+        test certificate web view should render properly in
+        preview mode even if user who is previewing already has a certificate
+        generated with different mode.
+        """
+        self._add_course_certificates(count=1, signatory_count=2)
+        CourseStaffRole(self.course.id).add_users(self.user)
+
+        test_url = get_certificate_url(
+            user_id=self.user.id,
+            course_id=unicode(self.course.id)
+        )
+        # user has already has certificate generated for 'honor' mode
+        # so let's try to preview in 'verified' mode.
+        response = self.client.get(test_url + '?preview=verified')
         self.assertNotIn(self.course.display_name, response.content)
         self.assertIn('course_title_0', response.content)
         self.assertIn('Signatory_Title 0', response.content)

@@ -57,7 +57,7 @@ from verify_student.image import decode_image_data, InvalidImageData
 from util.json_request import JsonResponse
 from util.date_utils import get_default_time_display
 from xmodule.modulestore.django import modulestore
-from staticfiles.storage import staticfiles_storage
+from django.contrib.staticfiles.storage import staticfiles_storage
 
 
 log = logging.getLogger(__name__)
@@ -766,13 +766,22 @@ def create_order(request):
         return HttpResponseBadRequest(_("Selected price is not valid number."))
 
     current_mode = None
-    paid_modes = CourseMode.paid_modes_for_course(course_id)
-    # Check if there are more than 1 paid(mode with min_price>0 e.g verified/professional/no-id-professional) modes
-    # for course exist then choose the first one
-    if paid_modes:
-        if len(paid_modes) > 1:
-            log.warn(u"Multiple paid course modes found for course '%s' for create order request", course_id)
-        current_mode = paid_modes[0]
+    sku = request.POST.get('sku', None)
+
+    if sku:
+        try:
+            current_mode = CourseMode.objects.get(sku=sku)
+        except CourseMode.DoesNotExist:
+            log.exception(u'Failed to find CourseMode with SKU [%s].', sku)
+
+    if not current_mode:
+        # Check if there are more than 1 paid(mode with min_price>0 e.g verified/professional/no-id-professional) modes
+        # for course exist then choose the first one
+        paid_modes = CourseMode.paid_modes_for_course(course_id)
+        if paid_modes:
+            if len(paid_modes) > 1:
+                log.warn(u"Multiple paid course modes found for course '%s' for create order request", course_id)
+            current_mode = paid_modes[0]
 
     # Make sure this course has a paid mode
     if not current_mode:
@@ -1093,9 +1102,10 @@ class SubmitPhotosView(View):
         Returns: None
 
         """
-        if settings.FEATURES.get('SEGMENT_IO_LMS') and hasattr(settings, 'SEGMENT_IO_LMS_KEY'):
+        if settings.LMS_SEGMENT_KEY:
             tracking_context = tracker.get_tracker().resolve_context()
             context = {
+                'ip': tracking_context.get('ip'),
                 'Google Analytics': {
                     'clientId': tracking_context.get('client_id')
                 }
@@ -1430,7 +1440,7 @@ class InCourseReverifyView(View):
             event_name, user_id, course_id, checkpoint
         )
 
-        if settings.FEATURES.get('SEGMENT_IO_LMS') and hasattr(settings, 'SEGMENT_IO_LMS_KEY'):
+        if settings.LMS_SEGMENT_KEY:
             tracking_context = tracker.get_tracker().resolve_context()
             analytics.track(
                 user_id,
@@ -1441,6 +1451,7 @@ class InCourseReverifyView(View):
                     'checkpoint': checkpoint
                 },
                 context={
+                    'ip': tracking_context.get('ip'),
                     'Google Analytics': {
                         'clientId': tracking_context.get('client_id')
                     }

@@ -2,7 +2,6 @@
 """
 End-to-end tests for Student's Profile Page.
 """
-from flaky import flaky
 from contextlib import contextmanager
 
 from datetime import datetime
@@ -48,7 +47,7 @@ class LearnerProfileTestMixin(EventsTestMixin):
         """
         profile_page.value_for_dropdown_field('language_proficiencies', 'English')
         profile_page.value_for_dropdown_field('country', 'United Arab Emirates')
-        profile_page.value_for_textarea_field('bio', 'Nothing Special')
+        profile_page.set_value_for_textarea_field('bio', 'Nothing Special')
 
     def visit_profile_page(self, username, privacy=None):
         """
@@ -306,7 +305,7 @@ class OwnLearnerProfilePageTest(LearnerProfileTestMixin, WebAppTest):
         """
         Test behaviour of a textarea field.
         """
-        profile_page.value_for_textarea_field(field_id, new_value)
+        profile_page.set_value_for_textarea_field(field_id, new_value)
         self.assertEqual(profile_page.get_non_editable_mode_value(field_id), displayed_value)
         self.assertTrue(profile_page.mode_for_field(field_id), mode)
 
@@ -376,10 +375,10 @@ class OwnLearnerProfilePageTest(LearnerProfileTestMixin, WebAppTest):
         Given that I am a registered user.
         And I visit my Profile page.
         And I set the profile visibility to public and set default values for public fields.
-        Then I set about me value to `Eat Sleep Code`.
-        Then displayed about me should be `Eat Sleep Code` and about me field mode should be `display`
+        Then I set about me value to `ThisIsIt`.
+        Then displayed about me should be `ThisIsIt` and about me field mode should be `display`
         And I reload the page.
-        Then displayed about me should be `Eat Sleep Code` and about me field mode should be `display`
+        Then displayed about me should be `ThisIsIt` and about me field mode should be `display`
         Then I set empty value for about me.
         Then displayed about me should be `Tell other edX learners a little about yourself: where you live,
         what your interests are, why you're taking courses on edX, or what you hope to learn.` and about me
@@ -473,7 +472,6 @@ class OwnLearnerProfilePageTest(LearnerProfileTestMixin, WebAppTest):
 
         self.assert_default_image_has_public_access(profile_page)
 
-    @flaky  # TODO fix this, see TNL-2704
     def test_user_can_upload_the_profile_image_with_success(self):
         """
         Scenario: Upload profile image works correctly.
@@ -704,7 +702,6 @@ class DifferentUserLearnerProfilePageTest(LearnerProfileTestMixin, WebAppTest):
         self.verify_profile_page_is_private(profile_page, is_editable=False)
         self.verify_profile_page_view_event(username, different_user_id, visibility=self.PRIVACY_PRIVATE)
 
-    @flaky  # TODO fix this, see TNL-2199
     def test_different_user_public_profile(self):
         """
         Scenario: Verify that desired fields are shown when looking at a different user's public profile.

@@ -7,7 +7,7 @@ import pymongo.message
 import threading
 import traceback
 from collections import defaultdict
-from decorator import contextmanager
+from contextlib import contextmanager
 from uuid import uuid4
 
 from factory import Factory, Sequence, lazy_attribute_sequence, lazy_attribute
@@ -71,10 +71,11 @@ class XModuleFactory(Factory):
     Factory for XModules
     """
 
-    # We have to give a Factory a FACTORY_FOR.
+    # We have to give a model for Factory.
     # However, the class that we create is actually determined by the category
     # specified in the factory
-    FACTORY_FOR = Dummy
+    class Meta(object):  # pylint: disable=missing-docstring
+        model = Dummy
 
     @lazy_attribute
     def modulestore(self):
@@ -114,7 +115,7 @@ class CourseFactory(XModuleFactory):
         name = kwargs.get('name', kwargs.get('run', Location.clean(kwargs.get('display_name'))))
         run = kwargs.pop('run', name)
         user_id = kwargs.pop('user_id', ModuleStoreEnum.UserID.test)
-        emit_signals = kwargs.get('emit_signals', False)
+        emit_signals = kwargs.pop('emit_signals', False)
 
         # Pass the metadata just as field=value pairs
         kwargs.update(kwargs.pop('metadata', {}))
