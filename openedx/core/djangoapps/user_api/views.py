@@ -270,7 +270,7 @@ class RegistrationView(APIView):
                 # Translators: This message is shown to users who attempt to create a new
                 # account using an email address associated with an existing account.
                 "email": _(
-                    u"It looks like {email_address} belongs to an existing account. Try again with a different email address."
+                    u"It looks like {email_address} belongs to an existing account. Try again with a different email address."  # pylint: disable=line-too-long
                 ).format(email_address=email),
                 # Translators: This message is shown to users who attempt to create a new
                 # account using a username associated with an existing account.
@@ -449,11 +449,13 @@ class RegistrationView(APIView):
         # form used to select the user's highest completed level of education.
         education_level_label = _(u"Highest level of education completed")
 
+        # The labels are marked for translation in UserProfile model definition.
+        options = [(name, _(label)) for name, label in UserProfile.LEVEL_OF_EDUCATION_CHOICES]  # pylint: disable=translation-of-non-string
         form_desc.add_field(
             "level_of_education",
             label=education_level_label,
             field_type="select",
-            options=UserProfile.LEVEL_OF_EDUCATION_CHOICES,
+            options=options,
             include_default_option=True,
             required=required
         )
@@ -472,11 +474,13 @@ class RegistrationView(APIView):
         # form used to select the user's gender.
         gender_label = _(u"Gender")
 
+        # The labels are marked for translation in UserProfile model definition.
+        options = [(name, _(label)) for name, label in UserProfile.GENDER_CHOICES]  # pylint: disable=translation-of-non-string
         form_desc.add_field(
             "gender",
             label=gender_label,
             field_type="select",
-            options=UserProfile.GENDER_CHOICES,
+            options=options,
             include_default_option=True,
             required=required
         )
@@ -800,6 +804,9 @@ class PasswordResetView(APIView):
 
 
 class UserViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    DRF class for interacting with the User ORM object
+    """
     authentication_classes = (authentication.SessionAuthentication,)
     permission_classes = (ApiKeyHeaderPermission,)
     queryset = User.objects.all().prefetch_related("preferences")
@@ -833,6 +840,9 @@ class ForumRoleUsersListView(generics.ListAPIView):
 
 
 class UserPreferenceViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    DRF class for interacting with the UserPreference ORM
+    """
     authentication_classes = (authentication.SessionAuthentication,)
     permission_classes = (ApiKeyHeaderPermission,)
     queryset = UserPreference.objects.all()
@@ -844,6 +854,9 @@ class UserPreferenceViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 class PreferenceUsersListView(generics.ListAPIView):
+    """
+    DRF class for listing a user's preferences
+    """
     authentication_classes = (authentication.SessionAuthentication,)
     permission_classes = (ApiKeyHeaderPermission,)
     serializer_class = UserSerializer

@@ -168,9 +168,6 @@ FEATURES = {
     # Show video bumper in Studio
     'ENABLE_VIDEO_BUMPER': False,
 
-    # Timed Proctored Exams
-    'ENABLE_PROCTORED_EXAMS': False,
-
     # How many seconds to show the bumper again, default is 7 days:
     'SHOW_BUMPER_PERIODICITY': 7 * 24 * 3600,
 
@@ -180,8 +177,8 @@ FEATURES = {
     # Can the visibility of the discussion tab be configured on a per-course basis?
     'ALLOW_HIDING_DISCUSSION_TAB': False,
 
-    # Timed or Proctored Exams
-    'ENABLE_PROCTORED_EXAMS': False,
+    # Special Exams, aka Timed and Proctored Exams
+    'ENABLE_SPECIAL_EXAMS': False,
 }
 
 ENABLE_JASMINE = False
@@ -711,6 +708,9 @@ INSTALLED_APPS = (
     'south',
     'method_override',
 
+    # Common views
+    'openedx.core.djangoapps.common_views',
+
     # History tables
     'simple_history',
 
@@ -787,6 +787,12 @@ INSTALLED_APPS = (
 
     # edX Proctoring
     'edx_proctoring',
+
+    # programs support
+    'openedx.core.djangoapps.programs',
+
+    # Self-paced course configuration
+    'openedx.core.djangoapps.self_paced',
 )
 
 
@@ -974,15 +980,14 @@ ADVANCED_COMPONENT_TYPES = [
     'pb-dashboard',
     'poll',
     'survey',
-    # XBlocks from pmitros repos are prototypes. They should not be used
-    # except for edX Learning Sciences experiments on edge.edx.org without
-    # further work to make them robust, maintainable, finalize data formats,
-    # etc.
+    # Some of the XBlocks from pmitros repos are sometimes prototypes.
+    # Use with caution.
     'concept',  # Concept mapper. See https://github.com/pmitros/ConceptXBlock
     'done',  # Lets students mark things as done. See https://github.com/pmitros/DoneXBlock
     'audio',  # Embed an audio file. See https://github.com/pmitros/AudioXBlock
     'recommender',  # Crowdsourced recommender. Prototype by dli&pmitros. Intended for roll-out in one place in one course.
     'profile',  # Prototype user profile XBlock. Used to test XBlock parameter passing. See https://github.com/pmitros/ProfileXBlock
+    'rate',  # Allows up-down voting of course content. See https://github.com/pmitros/RateXBlock
 
     'split_test',
     'combinedopenended',

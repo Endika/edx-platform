@@ -17,7 +17,7 @@ from student.roles import REGISTERED_ACCESS_ROLES
 class CourseAccessRoleForm(forms.ModelForm):
     """Form for adding new Course Access Roles view the Django Admin Panel."""
 
-    class Meta(object):  # pylint: disable=missing-docstring
+    class Meta(object):
         model = CourseAccessRole
 
     email = forms.EmailField(required=True)
@@ -125,7 +125,7 @@ class CourseAccessRoleAdmin(admin.ModelAdmin):
 class LinkedInAddToProfileConfigurationAdmin(admin.ModelAdmin):
     """Admin interface for the LinkedIn Add to Profile configuration. """
 
-    class Meta(object):  # pylint: disable=missing-docstring
+    class Meta(object):
         model = LinkedInAddToProfileConfiguration
 
     # Exclude deprecated fields
@@ -138,13 +138,7 @@ class CourseEnrollmentAdmin(admin.ModelAdmin):
     list_filter = ('mode', 'is_active',)
     search_fields = ('course_id', 'mode', 'user__username',)
 
-    def get_readonly_fields(self, request, obj=None):
-        # The course_id, mode, and user fields should not be editable for an existing enrollment.
-        if obj:
-            return self.readonly_fields + ('course_id', 'mode', 'user',)
-        return self.readonly_fields
-
-    class Meta(object):  # pylint: disable=missing-docstring
+    class Meta(object):
         model = CourseEnrollment
 
 
@@ -159,7 +153,7 @@ class UserProfileAdmin(admin.ModelAdmin):
             return self.readonly_fields + ('user',)
         return self.readonly_fields
 
-    class Meta(object):  # pylint: disable=missing-docstring
+    class Meta(object):
         model = UserProfile
 
 

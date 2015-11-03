@@ -1092,6 +1092,45 @@ def re_validate_invoice(obj_invoice):
 @ensure_csrf_cookie
 @cache_control(no_cache=True, no_store=True, must_revalidate=True)
 @require_level('staff')
+def get_issued_certificates(request, course_id):  # pylint: disable=invalid-name
+    """
+    Responds with JSON if CSV is not required. contains a list of issued certificates.
+    Arguments:
+        course_id
+    Returns:
+        {"certificates": [{course_id: xyz, mode: 'honor'}, ...]}
+
+    """
+    course_key = CourseKey.from_string(course_id)
+    csv_required = request.GET.get('csv', 'false')
+
+    query_features = ['course_id', 'mode', 'total_issued_certificate', 'report_run_date']
+    query_features_names = [
+        ('course_id', _('CourseID')),
+        ('mode', _('Certificate Type')),
+        ('total_issued_certificate', _('Total Certificates Issued')),
+        ('report_run_date', _('Date Report Run'))
+    ]
+    certificates_data = instructor_analytics.basic.issued_certificates(course_key, query_features)
+    if csv_required.lower() == 'true':
+        __, data_rows = instructor_analytics.csvs.format_dictlist(certificates_data, query_features)
+        return instructor_analytics.csvs.create_csv_response(
+            'issued_certificates.csv',
+            [col_header for __, col_header in query_features_names],
+            data_rows
+        )
+    else:
+        response_payload = {
+            'certificates': certificates_data,
+            'queried_features': query_features,
+            'feature_names': dict(query_features_names)
+        }
+        return JsonResponse(response_payload)
+
+
+@ensure_csrf_cookie
+@cache_control(no_cache=True, no_store=True, must_revalidate=True)
+@require_level('staff')
 def get_students_features(request, course_id, csv=False):  # pylint: disable=redefined-outer-name
     """
     Respond with json which contains a summary of all enrolled students profile information.
@@ -1311,6 +1350,29 @@ def get_exec_summary_report(request, course_id):
     except AlreadyRunningError:
         status_response = _(
             "The executive summary report is currently being created."
+            " To view the status of the report, see Pending Instructor Tasks below."
+            " You will be able to download the report when it is complete."
+        )
+    return JsonResponse({
+        "status": status_response
+    })
+
+
+@ensure_csrf_cookie
+@cache_control(no_cache=True, no_store=True, must_revalidate=True)
+@require_level('staff')
+def get_course_survey_results(request, course_id):
+    """
+    get the survey results report for the particular course.
+    """
+    course_key = SlashSeparatedCourseKey.from_deprecated_string(course_id)
+    try:
+        instructor_task.api.submit_course_survey_report(request, course_key)
+        status_response = _("The survey report is being created."
+                            " To view the status of the report, see Pending Instructor Tasks below.")
+    except AlreadyRunningError:
+        status_response = _(
+            "The survey report is currently being created."
             " To view the status of the report, see Pending Instructor Tasks below."
             " You will be able to download the report when it is complete."
         )

@@ -6,27 +6,28 @@ import json
 import re
 import pytz
 import ddt
+import urlparse
 from mock import patch, MagicMock
 from nose.plugins.attrib import attr
 
 from capa.tests.response_xml_factory import StringResponseXMLFactory
-from courseware.courses import get_course_by_id  # pyline: disable=import-error
-from courseware.field_overrides import OverrideFieldData  # pylint: disable=import-error
-from courseware.tests.factories import StudentModuleFactory  # pylint: disable=import-error
-from courseware.tests.helpers import LoginEnrollmentTestCase  # pylint: disable=import-error
+from courseware.courses import get_course_by_id
+from courseware.tests.factories import StudentModuleFactory
+from courseware.tests.helpers import LoginEnrollmentTestCase
 from courseware.tabs import get_course_tab_list
-from django.core.urlresolvers import reverse
+from django.core.urlresolvers import reverse, resolve
 from django.utils.timezone import UTC
 from django.test.utils import override_settings
 from django.test import RequestFactory
-from edxmako.shortcuts import render_to_response  # pylint: disable=import-error
+from edxmako.shortcuts import render_to_response
 from request_cache.middleware import RequestCache
-from student.roles import CourseCcxCoachRole  # pylint: disable=import-error
+from opaque_keys.edx.keys import CourseKey
+from student.roles import CourseCcxCoachRole
 from student.models import (
     CourseEnrollment,
     CourseEnrollmentAllowed,
 )
-from student.tests.factories import (  # pylint: disable=import-error
+from student.tests.factories import (
     AdminFactory,
     CourseEnrollmentFactory,
     UserFactory,
@@ -201,7 +202,7 @@ class TestCoachDashboard(SharedModuleStoreTestCase, LoginEnrollmentTestCase):
         self.make_coach()
         url = reverse(
             'ccx_coach_dashboard',
-            kwargs={'course_id': self.course.id.to_deprecated_string()})
+            kwargs={'course_id': unicode(self.course.id)})
         response = self.client.get(url)
         self.assertEqual(response.status_code, 200)
         self.assertTrue(re.search(
@@ -213,15 +214,26 @@ class TestCoachDashboard(SharedModuleStoreTestCase, LoginEnrollmentTestCase):
         Create CCX. Follow redirect to coach dashboard, confirm we see
         the coach dashboard for the new CCX.
         """
+
         self.make_coach()
         url = reverse(
             'create_ccx',
-            kwargs={'course_id': self.course.id.to_deprecated_string()})
+            kwargs={'course_id': unicode(self.course.id)})
+
         response = self.client.post(url, {'name': 'New CCX'})
         self.assertEqual(response.status_code, 302)
         url = response.get('location')  # pylint: disable=no-member
         response = self.client.get(url)
         self.assertEqual(response.status_code, 200)
+
+        # Get the ccx_key
+        path = urlparse.urlparse(url).path
+        resolver = resolve(path)
+        ccx_key = resolver.kwargs['course_id']
+
+        course_key = CourseKey.from_string(ccx_key)
+
+        self.assertTrue(CourseEnrollment.is_enrolled(self.coach, course_key))
         self.assertTrue(re.search('id="ccx-schedule"', response.content))
 
     @SharedModuleStoreTestCase.modifies_courseware
@@ -407,9 +419,9 @@ class TestCoachDashboard(SharedModuleStoreTestCase, LoginEnrollmentTestCase):
         self.assertEqual(response.status_code, 200)
         # we were redirected to our current location
         self.assertEqual(len(response.redirect_chain), 1)
-        self.assertTrue(302 in response.redirect_chain[0])
+        self.assertIn(302, response.redirect_chain[0])
         self.assertEqual(len(outbox), 1)
-        self.assertTrue(student.email in outbox[0].recipients())  # pylint: disable=no-member
+        self.assertIn(student.email, outbox[0].recipients())  # pylint: disable=no-member
         # a CcxMembership exists for this student
         self.assertTrue(
             CourseEnrollment.objects.filter(course_id=self.course.id, user=student).exists()
@@ -439,9 +451,9 @@ class TestCoachDashboard(SharedModuleStoreTestCase, LoginEnrollmentTestCase):
         self.assertEqual(response.status_code, 200)
         # we were redirected to our current location
         self.assertEqual(len(response.redirect_chain), 1)
-        self.assertTrue(302 in response.redirect_chain[0])
+        self.assertIn(302, response.redirect_chain[0])
         self.assertEqual(len(outbox), 1)
-        self.assertTrue(student.email in outbox[0].recipients())  # pylint: disable=no-member
+        self.assertIn(student.email, outbox[0].recipients())  # pylint: disable=no-member
 
     def test_enroll_non_user_student(self):
         """enroll a list of students who are not users yet
@@ -466,9 +478,9 @@ class TestCoachDashboard(SharedModuleStoreTestCase, LoginEnrollmentTestCase):
         self.assertEqual(response.status_code, 200)
         # we were redirected to our current location
         self.assertEqual(len(response.redirect_chain), 1)
-        self.assertTrue(302 in response.redirect_chain[0])
+        self.assertIn(302, response.redirect_chain[0])
         self.assertEqual(len(outbox), 1)
-        self.assertTrue(test_email in outbox[0].recipients())
+        self.assertIn(test_email, outbox[0].recipients())
         self.assertTrue(
             CourseEnrollmentAllowed.objects.filter(
                 course_id=course_key, email=test_email
@@ -500,7 +512,7 @@ class TestCoachDashboard(SharedModuleStoreTestCase, LoginEnrollmentTestCase):
         self.assertEqual(response.status_code, 200)
         # we were redirected to our current location
         self.assertEqual(len(response.redirect_chain), 1)
-        self.assertTrue(302 in response.redirect_chain[0])
+        self.assertIn(302, response.redirect_chain[0])
         self.assertFalse(
             CourseEnrollmentAllowed.objects.filter(
                 course_id=course_key, email=test_email
@@ -560,7 +572,7 @@ class TestCoachDashboard(SharedModuleStoreTestCase, LoginEnrollmentTestCase):
         self.assertEqual(response.status_code, 200)
         # we were redirected to our current location
         self.assertEqual(len(response.redirect_chain), 1)
-        self.assertTrue(302 in response.redirect_chain[0])
+        self.assertIn(302, response.redirect_chain[0])
         self.assertEqual(outbox, [])
         # a CcxMembership exists for this student
         self.assertTrue(
@@ -591,7 +603,7 @@ class TestCoachDashboard(SharedModuleStoreTestCase, LoginEnrollmentTestCase):
         self.assertEqual(response.status_code, 200)
         # we were redirected to our current location
         self.assertEqual(len(response.redirect_chain), 1)
-        self.assertTrue(302 in response.redirect_chain[0])
+        self.assertIn(302, response.redirect_chain[0])
         self.assertEqual(outbox, [])
 
 
@@ -638,7 +650,8 @@ class TestCCXGrades(SharedModuleStoreTestCase, LoginEnrollmentTestCase):
                 metadata={'graded': True, 'format': 'Homework'})
             for _ in xrange(4)
         ]
-        problems = [
+        # making problems available at class level for possible future use in tests
+        cls.problems = [
             [
                 ItemFactory.create(
                     parent=section,
@@ -733,12 +746,18 @@ class TestCCXGrades(SharedModuleStoreTestCase, LoginEnrollmentTestCase):
         )
         response = self.client.get(url)
         self.assertEqual(response.status_code, 200)
+        # Are the grades downloaded as an attachment?
+        self.assertEqual(
+            response['content-disposition'],
+            'attachment'
+        )
+
         headers, row = (
             row.strip().split(',') for row in
             response.content.strip().split('\n')
         )
         data = dict(zip(headers, row))
-        self.assertTrue('HW 04' not in data)
+        self.assertNotIn('HW 04', data)
         self.assertEqual(data['HW 01'], '0.75')
         self.assertEqual(data['HW 02'], '0.5')
         self.assertEqual(data['HW 03'], '0.25')

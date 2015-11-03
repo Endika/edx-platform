@@ -184,7 +184,6 @@ class AdvancedSettingsPage(CoursePage):
             'no_grade',
             'display_coursenumber',
             'display_organization',
-            'end_of_course_survey_url',
             'catalog_visibility',
             'chrome',
             'days_early_for_beta',
@@ -219,4 +218,5 @@ class AdvancedSettingsPage(CoursePage):
             'video_bumper',
             'cert_html_view_enabled',
             'enable_proctored_exams',
+            'enable_timed_exams',
         ]

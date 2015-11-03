@@ -64,13 +64,16 @@ from model_utils.models import TimeStampedModel
 from xmodule.modulestore.django import modulestore
 from config_models.models import ConfigurationModel
 from xmodule_django.models import CourseKeyField, NoneToEmptyManager
-from util.milestones_helpers import fulfill_course_milestone
+from util.milestones_helpers import fulfill_course_milestone, is_prerequisite_courses_enabled
 from course_modes.models import CourseMode
 
 LOGGER = logging.getLogger(__name__)
 
 
 class CertificateStatuses(object):
+    """
+    Enum for certificate statuses
+    """
     deleted = 'deleted'
     deleting = 'deleting'
     downloadable = 'downloadable'
@@ -108,6 +111,9 @@ class CertificateWhitelist(models.Model):
 
 
 class GeneratedCertificate(models.Model):
+    """
+    Base model for generated certificates
+    """
 
     MODES = Choices('verified', 'honor', 'audit', 'professional', 'no-id-professional')
 
@@ -130,7 +136,7 @@ class GeneratedCertificate(models.Model):
         auto_now=True, default=datetime.now)
     error_reason = models.CharField(max_length=512, blank=True, default='')
 
-    class Meta(object):  # pylint: disable=missing-docstring
+    class Meta(object):
         unique_together = (('user', 'course_id'),)
 
     @classmethod
@@ -155,7 +161,7 @@ def handle_post_cert_generated(sender, instance, **kwargs):  # pylint: disable=n
     User is assumed to have passed the course if certificate status is either 'generating' or 'downloadable'.
     """
     allowed_cert_states = [CertificateStatuses.generating, CertificateStatuses.downloadable]
-    if settings.FEATURES.get('ENABLE_PREREQUISITE_COURSES') and instance.status in allowed_cert_states:
+    if is_prerequisite_courses_enabled() and instance.status in allowed_cert_states:
         fulfill_course_milestone(instance.course_id, instance.user)
 
 
@@ -191,14 +197,16 @@ def certificate_status_for_student(student, course_id):
     try:
         generated_certificate = GeneratedCertificate.objects.get(
             user=student, course_id=course_id)
-        d = {'status': generated_certificate.status,
-             'mode': generated_certificate.mode}
+        cert_status = {
+            'status': generated_certificate.status,
+            'mode': generated_certificate.mode
+        }
         if generated_certificate.grade:
-            d['grade'] = generated_certificate.grade
+            cert_status['grade'] = generated_certificate.grade
         if generated_certificate.status == CertificateStatuses.downloadable:
-            d['download_url'] = generated_certificate.download_url
+            cert_status['download_url'] = generated_certificate.download_url
 
-        return d
+        return cert_status
     except GeneratedCertificate.DoesNotExist:
         pass
     return {'status': CertificateStatuses.unavailable, 'mode': GeneratedCertificate.MODES.honor}
@@ -244,7 +252,7 @@ class ExampleCertificateSet(TimeStampedModel):
     """
     course_key = CourseKeyField(max_length=255, db_index=True)
 
-    class Meta(object):  # pylint: disable=missing-docstring
+    class Meta(object):
         get_latest_by = 'created'
 
     @classmethod
@@ -501,7 +509,7 @@ class CertificateGenerationCourseSetting(TimeStampedModel):
     course_key = CourseKeyField(max_length=255, db_index=True)
     enabled = models.BooleanField(default=False)
 
-    class Meta(object):  # pylint: disable=missing-docstring
+    class Meta(object):
         get_latest_by = 'created'
 
     @classmethod
@@ -617,9 +625,6 @@ class BadgeAssertion(models.Model):
         return self.data['json']['id']
 
     class Meta(object):
-        """
-        Meta information for Django's construction of the model.
-        """
         unique_together = (('course_id', 'user', 'mode'),)
 
 
@@ -728,7 +733,7 @@ class CertificateTemplate(TimeStampedModel):
     def __unicode__(self):
         return u'%s' % (self.name, )
 
-    class Meta(object):  # pylint: disable=missing-docstring
+    class Meta(object):
         get_latest_by = 'created'
         unique_together = (('organization_id', 'course_key', 'mode'),)
 
@@ -780,7 +785,7 @@ class CertificateTemplateAsset(TimeStampedModel):
     def __unicode__(self):
         return u'%s' % (self.asset.url, )  # pylint: disable=no-member
 
-    class Meta(object):  # pylint: disable=missing-docstring
+    class Meta(object):
         get_latest_by = 'created'
 
 

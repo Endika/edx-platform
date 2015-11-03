@@ -11,14 +11,14 @@ from xmodule.modulestore.django import modulestore
 from xmodule.modulestore import ModuleStoreEnum
 
 from ..cohorts import set_course_cohort_settings
-from ..models import CourseUserGroup, CourseCohort, CourseCohortsSettings
+from ..models import CourseUserGroup, CourseCohort, CourseCohortsSettings, CohortMembership
 
 
 class CohortFactory(DjangoModelFactory):
     """
     Factory for constructing mock cohorts.
     """
-    class Meta(object):  # pylint: disable=missing-docstring
+    class Meta(object):
         model = CourseUserGroup
 
     name = Sequence("cohort{}".format)
@@ -38,8 +38,17 @@ class CourseCohortFactory(DjangoModelFactory):
     """
     Factory for constructing mock course cohort.
     """
-    class Meta(object):  # pylint: disable=missing-docstring
+    class Meta(object):
         model = CourseCohort
+
+    @post_generation
+    def memberships(self, create, extracted, **kwargs):  # pylint: disable=unused-argument
+        """
+        Returns the memberships linking users to this cohort.
+        """
+        for user in self.course_user_group.users.all():  # pylint: disable=E1101
+            membership = CohortMembership(user=user, course_user_group=self.course_user_group)
+            membership.save()
 
     course_user_group = factory.SubFactory(CohortFactory)
     assignment_type = 'manual'
@@ -49,7 +58,7 @@ class CourseCohortSettingsFactory(DjangoModelFactory):
     """
     Factory for constructing mock course cohort settings.
     """
-    class Meta(object):  # pylint: disable=missing-docstring
+    class Meta(object):
         model = CourseCohortsSettings
 
     is_cohorted = False
@@ -101,6 +110,9 @@ def config_course_cohorts_legacy(
         Nothing -- modifies course in place.
     """
     def to_id(name):
+        """
+        Helper method to convert a discussion topic name to a database identifier
+        """
         return topic_name_to_id(course, name)
 
     topics = dict((name, {"sort_key": "A",

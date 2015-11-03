@@ -27,8 +27,9 @@ from django.db import transaction
 from markupsafe import escape
 
 from courseware import grades
-from courseware.access import has_access, in_preview_mode, _adjust_start_date_for_beta_testers
+from courseware.access import has_access, _adjust_start_date_for_beta_testers
 from courseware.access_response import StartDateError
+from courseware.access_utils import in_preview_mode
 from courseware.courses import (
     get_courses, get_course, get_course_by_id,
     get_studio_url, get_course_with_access,
@@ -1045,6 +1046,9 @@ def _credit_course_requirements(course_key, student):
     if not (settings.FEATURES.get("ENABLE_CREDIT_ELIGIBILITY", False) and is_credit_course(course_key)):
         return None
 
+    # Credit requirement statuses for which user does not remain eligible to get credit.
+    non_eligible_statuses = ['failed', 'declined']
+
     # Retrieve the status of the user for each eligibility requirement in the course.
     # For each requirement, the user's status is either "satisfied", "failed", or None.
     # In this context, `None` means that we don't know the user's status, either because
@@ -1068,7 +1072,7 @@ def _credit_course_requirements(course_key, student):
 
     # If the user has *failed* any requirements (for example, if a photo verification is denied),
     # then the user is NOT eligible for credit.
-    elif any(requirement['status'] == 'failed' for requirement in requirement_statuses):
+    elif any(requirement['status'] in non_eligible_statuses for requirement in requirement_statuses):
         eligibility_status = "not_eligible"
 
     # Otherwise, the user may be eligible for credit, but the user has not

@@ -27,7 +27,7 @@ class LtiConsumer(models.Model):
     """
     consumer_name = models.CharField(max_length=255, unique=True)
     consumer_key = models.CharField(max_length=32, unique=True, db_index=True, default=short_token)
-    consumer_secret = models.CharField(max_length=32, unique=True, default=long_token)
+    consumer_secret = models.CharField(max_length=32, unique=True, default=short_token)
     instance_guid = models.CharField(max_length=255, blank=True, null=True, unique=True)
 
     @staticmethod
@@ -117,9 +117,6 @@ class GradedAssignment(models.Model):
     version_number = models.IntegerField(default=0)
 
     class Meta(object):
-        """
-        Uniqueness constraints.
-        """
         unique_together = ('outcome_service', 'lis_result_sourcedid')
 
 
@@ -135,7 +132,4 @@ class LtiUser(models.Model):
     edx_user = models.ForeignKey(User, unique=True)
 
     class Meta(object):
-        """
-        Uniqueness constraints.
-        """
         unique_together = ('lti_consumer', 'lti_user_id')

@@ -28,6 +28,7 @@ from openedx.core.lib.course_tabs import CourseTabPluginManager
 from openedx.core.djangoapps.credit.api import is_credit_course, get_credit_requirements
 from openedx.core.djangoapps.credit.tasks import update_credit_course_requirements
 from openedx.core.djangoapps.content.course_structures.api.v0 import api, errors
+from openedx.core.djangoapps.self_paced.models import SelfPacedConfiguration
 from xmodule.modulestore import EdxJSONEncoder
 from xmodule.modulestore.exceptions import ItemNotFoundError, DuplicateCourseError
 from opaque_keys import InvalidKeyError
@@ -87,7 +88,9 @@ from student.auth import has_course_author_access
 
 from util.milestones_helpers import (
     set_prerequisite_courses,
-    is_valid_course_key
+    is_valid_course_key,
+    is_prerequisite_courses_enabled,
+    is_entrance_exams_enabled
 )
 
 log = logging.getLogger(__name__)
@@ -894,7 +897,6 @@ def settings_handler(request, course_key_string):
         json: update the Course and About xblocks through the CourseDetails model
     """
     course_key = CourseKey.from_string(course_key_string)
-    prerequisite_course_enabled = settings.FEATURES.get('ENABLE_PREREQUISITE_COURSES', False)
     credit_eligibility_enabled = settings.FEATURES.get('ENABLE_CREDIT_ELIGIBILITY', False)
     with modulestore().bulk_operations(course_key):
         course_module = get_course_and_check_access(course_key, request.user)
@@ -911,8 +913,10 @@ def settings_handler(request, course_key_string):
 
             about_page_editable = not marketing_site_enabled
             enrollment_end_editable = GlobalStaff().has_user(request.user) or not marketing_site_enabled
-
             short_description_editable = settings.FEATURES.get('EDITABLE_SHORT_DESCRIPTION', True)
+
+            self_paced_enabled = SelfPacedConfiguration.current().enabled
+
             settings_context = {
                 'context_course': course_module,
                 'course_locator': course_key,
@@ -928,8 +932,11 @@ def settings_handler(request, course_key_string):
                 'is_credit_course': False,
                 'show_min_grade_warning': False,
                 'enrollment_end_editable': enrollment_end_editable,
+                'is_prerequisite_courses_enabled': is_prerequisite_courses_enabled(),
+                'is_entrance_exams_enabled': is_entrance_exams_enabled(),
+                'self_paced_enabled': self_paced_enabled,
             }
-            if prerequisite_course_enabled:
+            if is_prerequisite_courses_enabled():
                 courses, in_process_course_actions = get_courses_accessible_to_user(request)
                 # exclude current course from the list of available courses
                 courses = [course for course in courses if course.id != course_key]
@@ -970,7 +977,7 @@ def settings_handler(request, course_key_string):
             # For every other possible method type submitted by the caller...
             else:
                 # if pre-requisite course feature is enabled set pre-requisite course
-                if prerequisite_course_enabled:
+                if is_prerequisite_courses_enabled():
                     prerequisite_course_keys = request.json.get('pre_requisite_courses', [])
                     if prerequisite_course_keys:
                         if not all(is_valid_course_key(course_key) for course_key in prerequisite_course_keys):
@@ -981,7 +988,7 @@ def settings_handler(request, course_key_string):
                 # feature-specific settings and handle them accordingly
                 # We have to be careful that we're only executing the following logic if we actually
                 # need to create or delete an entrance exam from the specified course
-                if settings.FEATURES.get('ENTRANCE_EXAMS', False):
+                if is_entrance_exams_enabled():
                     course_entrance_exam_present = course_module.entrance_exam_enabled
                     entrance_exam_enabled = request.json.get('entrance_exam_enabled', '') == 'true'
                     ee_min_score_pct = request.json.get('entrance_exam_minimum_score_pct', None)
