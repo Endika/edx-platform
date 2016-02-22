@@ -5,10 +5,12 @@
 
 <%namespace name='static' file='static_content.html'/>
 <%!
-  import json
   import urllib
   from django.utils.translation import ugettext as _
   from contentstore import utils
+  from openedx.core.djangolib.js_utils import (
+      dump_js_escaped_json, js_escaped_string
+  )
 %>
 
 <%block name="header_extras">
@@ -31,7 +33,10 @@ CMS.URL.UPLOAD_ASSET = '${upload_asset_url}';
 
 <%block name="requirejs">
     require(["js/factories/settings"], function(SettingsFactory) {
-        SettingsFactory("${details_url}", ${json.dumps(show_min_grade_warning)});
+        SettingsFactory(
+            "${details_url | n, js_escaped_string}",
+            ${show_min_grade_warning | n, dump_js_escaped_json}
+        );
     });
 </%block>
 
@@ -89,10 +94,10 @@ CMS.URL.UPLOAD_ASSET = '${upload_asset_url}';
               <li class="action-item">
                 <%
                   email_subject = urllib.quote(_("Enroll in {course_display_name}").format(
-                      course_display_name = context_course.display_name_with_default
+                      course_display_name = context_course.display_name_with_default_escaped
                   ).encode("utf-8"))
                   email_body = urllib.quote(_('The course "{course_display_name}", provided by {platform_name}, is open for enrollment. Please navigate to this course at {link_for_about_page} to enroll.').format(
-                      course_display_name = context_course.display_name_with_default,
+                      course_display_name = context_course.display_name_with_default_escaped,
                       platform_name = settings.PLATFORM_NAME,
                       link_for_about_page = link_for_about_page
                   ).encode("utf-8"))
@@ -425,9 +430,9 @@ CMS.URL.UPLOAD_ASSET = '${upload_asset_url}';
 
               <ol class="list-input">
                 <li class="field">
-                  <input type="radio" class="field-radio" name="self-paced" id="course-pace-instructor-led" value="false"/>
-                  <label class="course-pace-label" for="course-pace-instructor-led">Instructor-Led</label>
-                  <span class="tip">${_("Instructor-led courses progress at the pace that the course author sets. You can configure release dates for course content and due dates for assignments.")}</span>
+                  <input type="radio" class="field-radio" name="self-paced" id="course-pace-instructor-paced" value="false"/>
+                  <label class="course-pace-label" for="course-pace-instructor-paced">Instructor-Paced</label>
+                  <span class="tip">${_("Instructor-paced courses progress at the pace that the course author sets. You can configure release dates for course content and due dates for assignments.")}</span>
                 </li>
                 <li class="field">
                   <input type="radio" class="field-radio" name="self-paced" id="course-pace-self-paced" value="true"/>

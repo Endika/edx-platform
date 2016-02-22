@@ -7,23 +7,22 @@ import time
 
 from dateutil.parser import parse
 import ddt
-from flaky import flaky
 from nose.plugins.attrib import attr
 from selenium.common.exceptions import TimeoutException
 from uuid import uuid4
 
-from ..helpers import get_modal_alert, EventsTestMixin, UniqueCourseTest
-from ...fixtures import LMS_BASE_URL
-from ...fixtures.course import CourseFixture
-from ...fixtures.discussion import (
+from common.test.acceptance.tests.helpers import get_modal_alert, EventsTestMixin, UniqueCourseTest
+from common.test.acceptance.fixtures import LMS_BASE_URL
+from common.test.acceptance.fixtures.course import CourseFixture
+from common.test.acceptance.fixtures.discussion import (
     Thread,
     MultipleThreadFixture
 )
-from ...pages.lms.auto_auth import AutoAuthPage
-from ...pages.lms.course_info import CourseInfoPage
-from ...pages.lms.learner_profile import LearnerProfilePage
-from ...pages.lms.tab_nav import TabNavPage
-from ...pages.lms.teams import (
+from common.test.acceptance.pages.lms.auto_auth import AutoAuthPage
+from common.test.acceptance.pages.lms.course_info import CourseInfoPage
+from common.test.acceptance.pages.lms.learner_profile import LearnerProfilePage
+from common.test.acceptance.pages.lms.tab_nav import TabNavPage
+from common.test.acceptance.pages.lms.teams import (
     TeamsPage,
     MyTeamsPage,
     BrowseTopicsPage,
@@ -32,7 +31,7 @@ from ...pages.lms.teams import (
     EditMembershipPage,
     TeamPage
 )
-from ...pages.common.utils import confirm_prompt
+from common.test.acceptance.pages.common.utils import confirm_prompt
 
 
 TOPICS_PER_PAGE = 12
@@ -45,6 +44,8 @@ class TeamsTabBase(EventsTestMixin, UniqueCourseTest):
         self.tab_nav = TabNavPage(self.browser)
         self.course_info_page = CourseInfoPage(self.browser, self.course_id)
         self.teams_page = TeamsPage(self.browser, self.course_id)
+        # TODO: Refactor so resetting events database is not necessary
+        self.reset_event_tracking()
 
     def create_topics(self, num_topics):
         """Create `num_topics` test topics."""
@@ -296,6 +297,7 @@ class TeamsTabTest(TeamsTabBase):
                     team_id=team['id']
                 ))
         )
+        self.teams_page.wait_for_page()
         self.teams_page.wait_for_ajax()
         self.assertTrue(self.teams_page.q(css=selector).present)
         self.assertTrue(self.teams_page.q(css=selector).visible)
@@ -673,10 +675,7 @@ class BrowseTeamsWithinTopicTest(TeamsTabBase):
                 user_info = AutoAuthPage(self.browser, course_id=self.course_id).visit().user_info
                 self.create_membership(user_info['username'], team['id'])
             team['open_slots'] = self.max_team_size - i
-            # Parse last activity date, removing microseconds because
-            # the Django ORM does not support them. Will be fixed in
-            # Django 1.8.
-            team['last_activity_at'] = parse(team['last_activity_at']).replace(microsecond=0)
+
         # Re-authenticate as staff after creating users
         AutoAuthPage(
             self.browser,
@@ -813,7 +812,6 @@ class BrowseTeamsWithinTopicTest(TeamsTabBase):
         self.browse_teams_page.click_browse_all_teams_link()
         self.assertTrue(self.topics_page.is_browser_on_page())
 
-    @flaky  # TODO: fix flaky test. See TNL-3489
     def test_search(self):
         """
         Scenario: User should be able to search for a team
@@ -1384,7 +1382,10 @@ class EditTeamTest(TeamFormActions):
                 }
             },
         ]
-        with self.assert_events_match_during(event_filter=self.only_team_events, expected_events=expected_events):
+        with self.assert_events_match_during(
+            event_filter=self.only_team_events,
+            expected_events=expected_events,
+        ):
             self.team_management_page.submit_form()
 
         self.team_page.wait_for_page()

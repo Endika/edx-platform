@@ -3,27 +3,27 @@ Views for the course_mode module
 """
 
 import decimal
-from ipware.ip import get_ip
 
+from django.contrib.auth.decorators import login_required
 from django.core.urlresolvers import reverse
+from django.db import transaction
 from django.http import HttpResponse, HttpResponseBadRequest
 from django.shortcuts import redirect
-from django.views.generic.base import View
-from django.utils.translation import ugettext as _
-from django.contrib.auth.decorators import login_required
 from django.utils.decorators import method_decorator
-
-from edxmako.shortcuts import render_to_response
-
-from course_modes.models import CourseMode
-from courseware.access import has_access
-from student.models import CourseEnrollment
-from opaque_keys.edx.locations import SlashSeparatedCourseKey
+from django.utils.translation import ugettext as _
+from django.views.generic.base import View
+from ipware.ip import get_ip
 from opaque_keys.edx.keys import CourseKey
-from util.db import commit_on_success_with_read_committed
+from opaque_keys.edx.locations import SlashSeparatedCourseKey
 from xmodule.modulestore.django import modulestore
 
+from lms.djangoapps.commerce.utils import EcommerceService
+from course_modes.models import CourseMode
+from courseware.access import has_access
+from edxmako.shortcuts import render_to_response
 from embargo import api as embargo_api
+from student.models import CourseEnrollment
+from util.db import outer_atomic
 
 
 class ChooseModeView(View):
@@ -37,7 +37,19 @@ class ChooseModeView(View):
 
     """
 
+    @method_decorator(transaction.non_atomic_requests)
+    def dispatch(self, *args, **kwargs):
+        """Disable atomicity for the view.
+
+        Otherwise, we'd be unable to commit to the database until the
+        request had concluded; Django will refuse to commit when an
+        atomic() block is active, since that would break atomicity.
+
+        """
+        return super(ChooseModeView, self).dispatch(*args, **kwargs)
+
     @method_decorator(login_required)
+    @method_decorator(transaction.atomic)
     def get(self, request, course_id, error=None):
         """Displays the course mode choice page.
 
@@ -111,10 +123,13 @@ class ChooseModeView(View):
         )
 
         context = {
-            "course_modes_choose_url": reverse("course_modes_choose", kwargs={'course_id': course_key.to_deprecated_string()}),
+            "course_modes_choose_url": reverse(
+                "course_modes_choose",
+                kwargs={'course_id': course_key.to_deprecated_string()}
+            ),
             "modes": modes,
             "has_credit_upsell": has_credit_upsell,
-            "course_name": course.display_name_with_default,
+            "course_name": course.display_name_with_default_escaped,
             "course_org": course.display_org_with_default,
             "course_num": course.display_number_with_default,
             "chosen_price": chosen_price,
@@ -123,20 +138,28 @@ class ChooseModeView(View):
             "nav_hidden": True,
         }
         if "verified" in modes:
+            verified_mode = modes["verified"]
             context["suggested_prices"] = [
                 decimal.Decimal(x.strip())
-                for x in modes["verified"].suggested_prices.split(",")
+                for x in verified_mode.suggested_prices.split(",")
                 if x.strip()
             ]
-            context["currency"] = modes["verified"].currency.upper()
-            context["min_price"] = modes["verified"].min_price
-            context["verified_name"] = modes["verified"].name
-            context["verified_description"] = modes["verified"].description
+            context["currency"] = verified_mode.currency.upper()
+            context["min_price"] = verified_mode.min_price
+            context["verified_name"] = verified_mode.name
+            context["verified_description"] = verified_mode.description
+
+            if verified_mode.sku:
+                ecommerce_service = EcommerceService()
+                context["use_ecommerce_payment_flow"] = ecommerce_service.is_enabled()
+                context["ecommerce_payment_page"] = ecommerce_service.payment_page_url()
+                context["sku"] = verified_mode.sku
 
         return render_to_response("course_modes/choose.html", context)
 
+    @method_decorator(transaction.non_atomic_requests)
     @method_decorator(login_required)
-    @method_decorator(commit_on_success_with_read_committed)
+    @method_decorator(outer_atomic(read_committed=True))
     def post(self, request, course_id):
         """Takes the form submission from the page and parses it.
 
@@ -167,10 +190,14 @@ class ChooseModeView(View):
         if requested_mode not in allowed_modes:
             return HttpResponseBadRequest(_("Enrollment mode not supported"))
 
-        if requested_mode == 'honor':
-            # The user will have already been enrolled in the honor mode at this
+        if requested_mode == 'audit':
+            # The user will have already been enrolled in the audit mode at this
             # point, so we just redirect them to the dashboard, thereby avoiding
             # hitting the database a second time attempting to enroll them.
+            return redirect(reverse('dashboard'))
+
+        if requested_mode == 'honor':
+            CourseEnrollment.enroll(user, course_key, mode=requested_mode)
             return redirect(reverse('dashboard'))
 
         mode_info = allowed_modes[requested_mode]
@@ -217,6 +244,8 @@ class ChooseModeView(View):
             return 'verified'
         if 'honor_mode' in request_dict:
             return 'honor'
+        if 'audit_mode' in request_dict:
+            return 'audit'
         else:
             return None
 

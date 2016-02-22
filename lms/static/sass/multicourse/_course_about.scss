@@ -43,7 +43,7 @@
         width: flex-grid(8) + flex-gutter();
         z-index: 2;
 
-        > hgroup {
+        > .heading-group {
           border-bottom: 1px solid $border-color-2;
           box-shadow: 0 1px 0 0 rgba(255,255,255, 0.6);
           margin-bottom: $baseline;
@@ -252,10 +252,10 @@
         background-color: $shadow-l2;
         text-align: right;
         text-transform: uppercase;
-        color: $lighter-base-font-color;
+        color: $staff-color;
 
         &:hover {
-          background-color: $link-hover;
+          background-color: $staff-color;
           color: $white;
         }
       }

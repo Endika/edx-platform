@@ -5,14 +5,12 @@ Module rendering
 import hashlib
 import json
 import logging
-
-import static_replace
-
 from collections import OrderedDict
 from functools import partial
-from requests.auth import HTTPBasicAuth
-import dogstats_wrapper as dog_stats_api
 
+import dogstats_wrapper as dog_stats_api
+import newrelic.agent
+from capa.xqueue_interface import XQueueInterface
 from django.conf import settings
 from django.contrib.auth.models import User
 from django.core.cache import cache
@@ -22,11 +20,25 @@ from django.core.urlresolvers import reverse
 from django.http import Http404, HttpResponse
 from django.test.client import RequestFactory
 from django.views.decorators.csrf import csrf_exempt
+from edx_proctoring.services import ProctoringService
+from eventtracking import tracker
+from opaque_keys import InvalidKeyError
+from opaque_keys.edx.keys import UsageKey, CourseKey
+from opaque_keys.edx.locations import SlashSeparatedCourseKey
+from requests.auth import HTTPBasicAuth
+from xblock.core import XBlock
+from xblock.django.request import django_to_webob_request, webob_to_django_response
+from xblock.exceptions import NoSuchHandlerError, NoSuchViewError
+from xblock.reference.plugins import FSService
 
-import newrelic.agent
-
-from capa.xqueue_interface import XQueueInterface
+import static_replace
+from openedx.core.lib.gating import api as gating_api
 from courseware.access import has_access, get_user_role
+from courseware.entrance_exams import (
+    get_entrance_exam_score,
+    user_must_complete_entrance_exam,
+    user_has_passed_entrance_exam
+)
 from courseware.masquerade import (
     MasqueradingKeyValueStore,
     filter_displayed_blocks,
@@ -35,19 +47,13 @@ from courseware.masquerade import (
 )
 from courseware.model_data import DjangoKeyValueStore, FieldDataCache, set_score
 from courseware.models import SCORE_CHANGED
-from courseware.entrance_exams import (
-    get_entrance_exam_score,
-    user_must_complete_entrance_exam,
-    user_has_passed_entrance_exam
-)
 from edxmako.shortcuts import render_to_string
-from eventtracking import tracker
 from lms.djangoapps.lms_xblock.field_data import LmsFieldData
-from lms.djangoapps.lms_xblock.runtime import LmsModuleSystem, unquote_slashes, quote_slashes
 from lms.djangoapps.lms_xblock.models import XBlockAsidesConfig
-from opaque_keys import InvalidKeyError
-from opaque_keys.edx.keys import UsageKey, CourseKey
-from opaque_keys.edx.locations import SlashSeparatedCourseKey
+from openedx.core.djangoapps.bookmarks.services import BookmarksService
+from lms.djangoapps.lms_xblock.runtime import LmsModuleSystem, unquote_slashes, quote_slashes
+from lms.djangoapps.verify_student.services import ReverificationService
+from openedx.core.djangoapps.credit.services import CreditService
 from openedx.core.lib.xblock_utils import (
     replace_course_urls,
     replace_jump_to_id_urls,
@@ -56,32 +62,22 @@ from openedx.core.lib.xblock_utils import (
     wrap_xblock,
     request_token as xblock_request_token,
 )
-from psychometrics.psychoanalyze import make_psychometrics_data_update_handler
 from student.models import anonymous_id_for_user, user_by_anonymous_id
 from student.roles import CourseBetaTesterRole
-from xblock.core import XBlock
-from xblock.django.request import django_to_webob_request, webob_to_django_response
-from xblock_django.user_service import DjangoXBlockUserService
-from xblock.exceptions import NoSuchHandlerError, NoSuchViewError
-from xblock.reference.plugins import FSService
-from xblock.runtime import KvsFieldData
-from xmodule.contentstore.django import contentstore
-from xmodule.error_module import ErrorDescriptor, NonStaffErrorDescriptor
-from xmodule.exceptions import NotFoundError, ProcessingError
-from xmodule.modulestore.django import modulestore, ModuleI18nService
-from xmodule.lti_module import LTIModule
-from xmodule.modulestore.exceptions import ItemNotFoundError
-from xmodule.x_module import XModuleDescriptor
-from xmodule.mixin import wrap_with_license
+from util import milestones_helpers
 from util.json_request import JsonResponse
 from util.model_utils import slugify
 from util.sandboxing import can_execute_unsafe_code, get_python_lib_zip
-from util import milestones_helpers
-from verify_student.services import ReverificationService
-
-from edx_proctoring.services import ProctoringService
-from openedx.core.djangoapps.credit.services import CreditService
-
+from xblock.runtime import KvsFieldData
+from xblock_django.user_service import DjangoXBlockUserService
+from xmodule.contentstore.django import contentstore
+from xmodule.error_module import ErrorDescriptor, NonStaffErrorDescriptor
+from xmodule.exceptions import NotFoundError, ProcessingError
+from xmodule.lti_module import LTIModule
+from xmodule.mixin import wrap_with_license
+from xmodule.modulestore.django import modulestore, ModuleI18nService
+from xmodule.modulestore.exceptions import ItemNotFoundError
+from xmodule.x_module import XModuleDescriptor
 from .field_overrides import OverrideFieldData
 
 log = logging.getLogger(__name__)
@@ -156,8 +152,12 @@ def toc_for_course(user, request, course, active_chapter, active_section, field_
         toc_chapters = list()
         chapters = course_module.get_display_items()
 
-        # See if the course is gated by one or more content milestones
+        # Check for content which needs to be completed
+        # before the rest of the content is made available
         required_content = milestones_helpers.get_required_content(course, user)
+
+        # Check for gated content
+        gated_content = gating_api.get_gated_content(course, user)
 
         # The user may not actually have to complete the entrance exam, if one is required
         if not user_must_complete_entrance_exam(request, user, course):
@@ -166,7 +166,7 @@ def toc_for_course(user, request, course, active_chapter, active_section, field_
         for chapter in chapters:
             # Only show required content, if there is required content
             # chapter.hide_from_toc is read-only (boo)
-            display_id = slugify(chapter.display_name_with_default)
+            display_id = slugify(chapter.display_name_with_default_escaped)
             local_hide_from_toc = False
             if required_content:
                 if unicode(chapter.location) not in required_content:
@@ -182,9 +182,13 @@ def toc_for_course(user, request, course, active_chapter, active_section, field_
                 active = (chapter.url_name == active_chapter and
                           section.url_name == active_section)
 
+                # Skip the current section if it is gated
+                if gated_content and unicode(section.location) in gated_content:
+                    continue
+
                 if not section.hide_from_toc:
                     section_context = {
-                        'display_name': section.display_name_with_default,
+                        'display_name': section.display_name_with_default_escaped,
                         'url_name': section.url_name,
                         'format': section.format if section.format is not None else '',
                         'due': section.due,
@@ -247,7 +251,7 @@ def toc_for_course(user, request, course, active_chapter, active_section, field_
 
                     sections.append(section_context)
             toc_chapters.append({
-                'display_name': chapter.display_name_with_default,
+                'display_name': chapter.display_name_with_default_escaped,
                 'display_id': display_id,
                 'url_name': chapter.url_name,
                 'sections': sections,
@@ -413,31 +417,6 @@ def get_module_system_for_user(user, student_data,  # TODO  # pylint: disable=to
         'waittime': settings.XQUEUE_WAITTIME_BETWEEN_REQUESTS
     }
 
-    # This is a hacky way to pass settings to the combined open ended xmodule
-    # It needs an S3 interface to upload images to S3
-    # It needs the open ended grading interface in order to get peer grading to be done
-    # this first checks to see if the descriptor is the correct one, and only sends settings if it is
-
-    # Get descriptor metadata fields indicating needs for various settings
-    needs_open_ended_interface = getattr(descriptor, "needs_open_ended_interface", False)
-    needs_s3_interface = getattr(descriptor, "needs_s3_interface", False)
-
-    # Initialize interfaces to None
-    open_ended_grading_interface = None
-    s3_interface = None
-
-    # Create interfaces if needed
-    if needs_open_ended_interface:
-        open_ended_grading_interface = settings.OPEN_ENDED_GRADING_INTERFACE
-        open_ended_grading_interface['mock_peer_grading'] = settings.MOCK_PEER_GRADING
-        open_ended_grading_interface['mock_staff_grading'] = settings.MOCK_STAFF_GRADING
-    if needs_s3_interface:
-        s3_interface = {
-            'access_key': getattr(settings, 'AWS_ACCESS_KEY_ID', ''),
-            'secret_access_key': getattr(settings, 'AWS_SECRET_ACCESS_KEY', ''),
-            'storage_bucket_name': getattr(settings, 'AWS_STORAGE_BUCKET_NAME', 'openended')
-        }
-
     def inner_get_module(descriptor):
         """
         Delegate to get_module_for_descriptor_internal() with all values except `descriptor` set.
@@ -496,7 +475,7 @@ def get_module_system_for_user(user, student_data,  # TODO  # pylint: disable=to
         """
         Manages the workflow for recording and updating of student module grade state
         """
-        user_id = event.get('user_id', user.id)
+        user_id = user.id
 
         grade = event.get('value')
         max_grade = event.get('max_value')
@@ -601,7 +580,7 @@ def get_module_system_for_user(user, student_data,  # TODO  # pylint: disable=to
         )
 
         module.descriptor.scope_ids = (
-            module.descriptor.scope_ids._replace(user_id=real_user.id)  # pylint: disable=protected-access
+            module.descriptor.scope_ids._replace(user_id=real_user.id)
         )
         module.scope_ids = module.descriptor.scope_ids  # this is needed b/c NamedTuples are immutable
         # now bind the module to the new ModuleSystem instance and vice-versa
@@ -726,8 +705,6 @@ def get_module_system_for_user(user, student_data,  # TODO  # pylint: disable=to
         publish=publish,
         anonymous_student_id=anonymous_student_id,
         course_id=course_id,
-        open_ended_grading_interface=open_ended_grading_interface,
-        s3_interface=s3_interface,
         cache=cache,
         can_execute_unsafe_code=(lambda: can_execute_unsafe_code(course_id)),
         get_python_lib_zip=(lambda: get_python_lib_zip(contentstore, course_id)),
@@ -743,6 +720,7 @@ def get_module_system_for_user(user, student_data,  # TODO  # pylint: disable=to
             "reverification": ReverificationService(),
             'proctoring': ProctoringService(),
             'credit': CreditService(),
+            'bookmarks': BookmarksService(user=user),
         },
         get_user_role=lambda: get_user_role(user, course_id),
         descriptor_runtime=descriptor._runtime,  # pylint: disable=protected-access
@@ -760,16 +738,11 @@ def get_module_system_for_user(user, student_data,  # TODO  # pylint: disable=to
             position = None
 
     system.set('position', position)
-    if settings.FEATURES.get('ENABLE_PSYCHOMETRICS') and user.is_authenticated():
-        system.set(
-            'psychometrics_handler',  # set callback for updating PsychometricsData
-            make_psychometrics_data_update_handler(course_id, user, descriptor.location)
-        )
 
     system.set(u'user_is_staff', user_is_staff)
     system.set(u'user_is_admin', bool(has_access(user, u'staff', 'global')))
     system.set(u'user_is_beta_tester', CourseBetaTesterRole(course_id).has_user(user))
-    system.set(u'days_early_for_beta', getattr(descriptor, 'days_early_for_beta'))
+    system.set(u'days_early_for_beta', descriptor.days_early_for_beta)
 
     # make an ErrorDescriptor -- assuming that the descriptor's system is ok
     if has_access(user, u'staff', descriptor.location, course_id):
@@ -822,7 +795,7 @@ def get_module_for_descriptor_internal(user, descriptor, student_data, course_id
         ],
     )
 
-    descriptor.scope_ids = descriptor.scope_ids._replace(user_id=user.id)  # pylint: disable=protected-access
+    descriptor.scope_ids = descriptor.scope_ids._replace(user_id=user.id)
 
     # Do not check access when it's a noauth request.
     # Not that the access check needs to happen after the descriptor is bound
@@ -972,7 +945,7 @@ def get_module_by_usage_id(request, course_id, usage_id, disable_staff_debug_inf
 
     tracking_context = {
         'module': {
-            'display_name': descriptor.display_name_with_default,
+            'display_name': descriptor.display_name_with_default_escaped,
             'usage_key': unicode(descriptor.location),
         }
     }
@@ -1022,13 +995,17 @@ def _invoke_xblock_handler(request, course_id, usage_id, handler, suffix, course
     files = request.FILES or {}
     error_msg = _check_files_limits(files)
     if error_msg:
-        return JsonResponse(object={'success': error_msg}, status=413)
+        return JsonResponse({'success': error_msg}, status=413)
 
     # Make a CourseKey from the course_id, raising a 404 upon parse error.
     try:
         course_key = CourseKey.from_string(course_id)
     except InvalidKeyError:
         raise Http404
+
+    # Gather metrics for New Relic so we can slice data in New Relic Insights
+    newrelic.agent.add_custom_parameter('course_id', unicode(course_key))
+    newrelic.agent.add_custom_parameter('org', unicode(course_key.org))
 
     with modulestore().bulk_operations(course_key):
         instance, tracking_context = get_module_by_usage_id(request, course_id, usage_id, course=course)
@@ -1037,7 +1014,7 @@ def _invoke_xblock_handler(request, course_id, usage_id, handler, suffix, course
         # New Relic. The suffix is necessary for XModule handlers because the
         # "handler" in those cases is always just "xmodule_handler".
         nr_tx_name = "{}.{}".format(instance.__class__.__name__, handler)
-        nr_tx_name += "/{}".format(suffix) if suffix else ""
+        nr_tx_name += "/{}".format(suffix) if (suffix and handler == "xmodule_handler") else ""
         newrelic.agent.set_transaction_name(nr_tx_name, group="Python/XBlock/Handler")
 
         tracking_context_name = 'module_callback_handler'
@@ -1065,7 +1042,7 @@ def _invoke_xblock_handler(request, course_id, usage_id, handler, suffix, course
         except ProcessingError as err:
             log.warning("Module encountered an error while processing AJAX call",
                         exc_info=True)
-            return JsonResponse(object={'success': err.args[0]}, status=200)
+            return JsonResponse({'success': err.args[0]}, status=200)
 
         # If any other error occurred, re-raise it to trigger a 500 response
         except Exception:

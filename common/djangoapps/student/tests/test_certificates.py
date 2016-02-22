@@ -2,40 +2,56 @@
 
 import unittest
 import ddt
+import mock
 
 from django.conf import settings
 from django.core.urlresolvers import reverse
 from mock import patch
 from django.test.utils import override_settings
+from xmodule.modulestore import ModuleStoreEnum
 
-from xmodule.modulestore.tests.django_utils import ModuleStoreTestCase
+from xmodule.modulestore.tests.django_utils import SharedModuleStoreTestCase
 from xmodule.modulestore.tests.factories import CourseFactory
 from student.tests.factories import UserFactory, CourseEnrollmentFactory
 from certificates.tests.factories import GeneratedCertificateFactory  # pylint: disable=import-error
 from certificates.api import get_certificate_url  # pylint: disable=import-error
 from course_modes.models import CourseMode
 
+from student.models import LinkedInAddToProfileConfiguration
+
 # pylint: disable=no-member
+
+
+def _fake_is_request_in_microsite():
+    """
+    Mocked version of microsite helper method to always return true
+    """
+    return True
 
 
 @ddt.ddt
 @unittest.skipUnless(settings.ROOT_URLCONF == 'lms.urls', 'Test only valid in lms')
-class CertificateDisplayTest(ModuleStoreTestCase):
+class CertificateDisplayTest(SharedModuleStoreTestCase):
     """Tests display of certificates on the student dashboard. """
 
     USERNAME = "test_user"
     PASSWORD = "password"
     DOWNLOAD_URL = "http://www.example.com/certificate.pdf"
 
+    @classmethod
+    def setUpClass(cls):
+        super(CertificateDisplayTest, cls).setUpClass()
+        cls.course = CourseFactory()
+        cls.course.certificates_display_behavior = "early_with_info"
+
+        with cls.store.branch_setting(ModuleStoreEnum.Branch.draft_preferred, cls.course.id):
+            cls.store.update_item(cls.course, cls.USERNAME)
+
     def setUp(self):
         super(CertificateDisplayTest, self).setUp()
         self.user = UserFactory.create(username=self.USERNAME, password=self.PASSWORD)
         result = self.client.login(username=self.USERNAME, password=self.PASSWORD)
         self.assertTrue(result, msg="Could not log in")
-
-        self.course = CourseFactory()
-        self.course.certificates_display_behavior = "early_with_info"
-        self.update_course(self.course, self.user.username)
 
     @ddt.data('verified', 'professional')
     @patch.dict('django.conf.settings.FEATURES', {'CERTIFICATES_HTML_VIEW': False})
@@ -72,12 +88,6 @@ class CertificateDisplayTest(ModuleStoreTestCase):
     @override_settings(CERT_NAME_SHORT='Test_Certificate')
     @patch.dict('django.conf.settings.FEATURES', {'CERTIFICATES_HTML_VIEW': True})
     def test_linked_student_to_web_view_credential(self, enrollment_mode):
-        test_url = get_certificate_url(
-            user_id=self.user.id,
-            course_id=unicode(self.course.id)
-        )
-
-        self._create_certificate(enrollment_mode)
         certificates = [
             {
                 'id': 0,
@@ -93,15 +103,72 @@ class CertificateDisplayTest(ModuleStoreTestCase):
         self.course.save()   # pylint: disable=no-member
         self.store.update_item(self.course, self.user.id)
 
+        cert = self._create_certificate(enrollment_mode)
+        test_url = get_certificate_url(course_id=self.course.id, uuid=cert.verify_uuid)
+
         response = self.client.get(reverse('dashboard'))
 
         self.assertContains(response, u'View Test_Certificate')
         self.assertContains(response, test_url)
 
+    def test_post_to_linkedin_invisibility(self):
+        """
+        Verifies that the post certificate to linked button
+        does not appear by default (when config is not set)
+        """
+        self._create_certificate('honor')
+
+        # until we set up the configuration, the LinkedIn action
+        # button should not be visible
+        self._check_linkedin_visibility(False)
+
+    def test_post_to_linkedin_visibility(self):
+        """
+        Verifies that the post certificate to linked button appears
+        as expected
+        """
+        self._create_certificate('honor')
+
+        config = LinkedInAddToProfileConfiguration(
+            company_identifier='0_mC_o2MizqdtZEmkVXjH4eYwMj4DnkCWrZP_D9',
+            enabled=True
+        )
+        config.save()
+
+        # now we should see it
+        self._check_linkedin_visibility(True)
+
+    @mock.patch("microsite_configuration.microsite.is_request_in_microsite", _fake_is_request_in_microsite)
+    def test_post_to_linkedin_microsite(self):
+        """
+        Verifies behavior for microsites which disables the post to LinkedIn
+        feature (for now)
+        """
+        self._create_certificate('honor')
+
+        config = LinkedInAddToProfileConfiguration(
+            company_identifier='0_mC_o2MizqdtZEmkVXjH4eYwMj4DnkCWrZP_D9',
+            enabled=True
+        )
+        config.save()
+
+        # now we should not see it because we are in a microsite
+        self._check_linkedin_visibility(False)
+
+    def _check_linkedin_visibility(self, is_visible):
+        """
+        Performs assertions on the Dashboard
+        """
+        response = self.client.get(reverse('dashboard'))
+        if is_visible:
+            self.assertContains(response, u'Add Certificate to LinkedIn Profile')
+        else:
+            self.assertNotContains(response, u'Add Certificate to LinkedIn Profile')
+
     def _create_certificate(self, enrollment_mode):
         """Simulate that the user has a generated certificate. """
         CourseEnrollmentFactory.create(user=self.user, course_id=self.course.id, mode=enrollment_mode)
-        GeneratedCertificateFactory(
+        return GeneratedCertificateFactory(
             user=self.user,
             course_id=self.course.id,
             mode=enrollment_mode,

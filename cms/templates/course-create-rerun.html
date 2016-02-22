@@ -21,7 +21,7 @@ from django.template.defaultfilters import escapejs
 </%block>
 
 <%block name="content">
-<div id="content">
+<div id="content" tabindex="-1">
   <div class="wrapper-mast wrapper">
     <header class="mast mast-wizard has-actions">
       <h1 class="page-header">
@@ -29,7 +29,7 @@ from django.template.defaultfilters import escapejs
       </h1>
 
       <nav class="nav-actions" aria-label="${_('Page Actions')}">
-        <h3 class="sr">Page Actions</h3>
+        <h3 class="sr">${_("Page Actions")}</h3>
         <ul>
           <li class="nav-item">
             <a href="" class="button cancel-button">${_("Cancel")}</a>

@@ -12,7 +12,7 @@ MEDIA_ROOT = "/edx/var/edxapp/uploads"
 
 DEBUG = True
 USE_I18N = True
-TEMPLATE_DEBUG = True
+DEFAULT_TEMPLATE_ENGINE['OPTIONS']['debug'] = True
 SITE_NAME = 'localhost:8000'
 PLATFORM_NAME = ENV_TOKENS.get('PLATFORM_NAME', 'Devstack')
 # By default don't use a worker, execute tasks as if they were local functions
@@ -49,6 +49,14 @@ ANALYTICS_API_KEY = ""
 # dashboard to the Analytics Dashboard.
 ANALYTICS_DASHBOARD_URL = None
 
+############################ PYFS XBLOCKS SERVICE #############################
+# Set configuration for Django pyfilesystem
+
+DJFS = {
+    'type': 'osfs',
+    'directory_root': 'lms/static/djpyfs',
+    'url_root': '/static/djpyfs',
+}
 
 ################################ DEBUG TOOLBAR ################################
 
@@ -86,9 +94,8 @@ def should_show_debug_toolbar(_):
 
 ########################### PIPELINE #################################
 
-# Skip packaging and optimization in development
 PIPELINE_ENABLED = False
-STATICFILES_STORAGE = 'pipeline.storage.NonPackagingPipelineStorage'
+STATICFILES_STORAGE = 'openedx.core.storage.DevelopmentStorage'
 
 # Revert to the default set of finders as we don't want the production pipeline
 STATICFILES_FINDERS = [
@@ -102,7 +109,7 @@ PIPELINE_JS_COMPRESSOR = None
 # Whether to run django-require in debug mode.
 REQUIRE_DEBUG = DEBUG
 
-PIPELINE_SASS_ARGUMENTS = '--debug-info --require {proj_dir}/static/sass/bourbon/lib/bourbon.rb'.format(proj_dir=PROJECT_ROOT)
+PIPELINE_SASS_ARGUMENTS = '--debug-info'
 
 ########################### VERIFIED CERTIFICATES #################################
 
@@ -162,17 +169,16 @@ FEATURES['CERTIFICATES_HTML_VIEW'] = True
 
 
 ########################## Course Discovery #######################
-from django.utils.translation import ugettext as _
-LANGUAGE_MAP = {'terms': {lang: display for lang, display in ALL_LANGUAGES}, 'name': _('Language')}
+LANGUAGE_MAP = {'terms': {lang: display for lang, display in ALL_LANGUAGES}, 'name': 'Language'}
 COURSE_DISCOVERY_MEANINGS = {
     'org': {
-        'name': _('Organization'),
+        'name': 'Organization',
     },
     'modes': {
-        'name': _('Course Type'),
+        'name': 'Course Type',
         'terms': {
-            'honor': _('Honor'),
-            'verified': _('Verified'),
+            'honor': 'Honor',
+            'verified': 'Verified',
         },
     },
     'language': LANGUAGE_MAP,
@@ -217,6 +223,13 @@ CORS_ALLOW_CREDENTIALS = True
 CORS_ORIGIN_WHITELIST = ()
 CORS_ORIGIN_ALLOW_ALL = True
 
+# JWT settings for devstack
+JWT_AUTH.update({
+    'JWT_ALGORITHM': 'HS256',
+    'JWT_SECRET_KEY': 'lms-secret',
+    'JWT_ISSUER': 'http://127.0.0.1:8000/oauth2',
+    'JWT_AUDIENCE': 'lms-key',
+})
 
 #####################################################################
 # See if the developer has any local overrides.

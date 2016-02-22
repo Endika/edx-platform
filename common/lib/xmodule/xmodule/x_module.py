@@ -142,7 +142,7 @@ class OpaqueKeyReader(IdReader):
         return aside_id.aside_type
 
 
-class AsideKeyGenerator(IdGenerator):  # pylint: disable=abstract-method
+class AsideKeyGenerator(IdGenerator):
     """
     An :class:`.IdGenerator` that only provides facilities for constructing new XBlockAsides.
     """
@@ -349,6 +349,21 @@ class XModuleMixin(XModuleFields, XBlock):
         return course_metadata_utils.display_name_with_default(self)
 
     @property
+    def display_name_with_default_escaped(self):
+        """
+        DEPRECATED: use display_name_with_default
+
+        Return an html escaped display name for the module: use display_name if
+        defined in metadata, otherwise convert the url name.
+
+        Note: This newly introduced method should not be used.  It was only
+        introduced to enable a quick search/replace and the ability to slowly
+        migrate and test switching to display_name_with_default, which is no
+        longer escaped.
+        """
+        return course_metadata_utils.display_name_with_default_escaped(self)
+
+    @property
     def xblock_kvs(self):
         """
         Retrieves the internal KeyValueStore for this XModule.
@@ -424,7 +439,7 @@ class XModuleMixin(XModuleFields, XBlock):
         if self.has_children:
             return sum((child.get_content_titles() for child in self.get_children()), [])
         else:
-            return [self.display_name_with_default]
+            return [self.display_name_with_default_escaped]
 
     def get_children(self, usage_id_filter=None, usage_key_filter=None):  # pylint: disable=arguments-differ
         """Returns a list of XBlock instances for the children of
@@ -593,7 +608,6 @@ class XModuleMixin(XModuleFields, XBlock):
                 # not the most elegant way of doing this, but if we're removing
                 # a field from the module's field_data_cache, we should also
                 # remove it from its _dirty_fields
-                # pylint: disable=protected-access
                 if field in self._dirty_fields:
                     del self._dirty_fields[field]
 
@@ -751,7 +765,7 @@ module_runtime_attr = partial(ProxyAttribute, 'xmodule_runtime')  # pylint: disa
 
 
 @XBlock.needs("i18n")
-class XModule(HTMLSnippet, XModuleMixin):  # pylint: disable=abstract-method
+class XModule(HTMLSnippet, XModuleMixin):
     """ Implements a generic learning module.
 
         Subclasses must at a minimum provide a definition for get_html in order
@@ -1176,7 +1190,7 @@ class XModuleDescriptor(HTMLSnippet, ResourceTemplates, XModuleMixin):
         return Fragment(self.get_html())
 
 
-class ConfigurableFragmentWrapper(object):  # pylint: disable=abstract-method
+class ConfigurableFragmentWrapper(object):
     """
     Runtime mixin that allows for composition of many `wrap_xblock` wrappers
     """
@@ -1210,7 +1224,7 @@ class ConfigurableFragmentWrapper(object):  # pylint: disable=abstract-method
 # Runtime.handler_url interface.
 #
 # The monkey-patching happens in (lms|cms)/startup.py
-def descriptor_global_handler_url(block, handler_name, suffix='', query='', thirdparty=False):  # pylint: disable=invalid-name, unused-argument
+def descriptor_global_handler_url(block, handler_name, suffix='', query='', thirdparty=False):  # pylint: disable=unused-argument
     """
     See :meth:`xblock.runtime.Runtime.handler_url`.
     """
@@ -1309,7 +1323,7 @@ class MetricsMixin(object):
             )
 
 
-class DescriptorSystem(MetricsMixin, ConfigurableFragmentWrapper, Runtime):  # pylint: disable=abstract-method
+class DescriptorSystem(MetricsMixin, ConfigurableFragmentWrapper, Runtime):
     """
     Base class for :class:`Runtime`s to be used with :class:`XModuleDescriptor`s
     """
@@ -1543,7 +1557,7 @@ class XMLParsingSystem(DescriptorSystem):
             return value
         return course_key.make_usage_key_from_deprecated_string(value)
 
-    def _convert_reference_fields_to_keys(self, xblock):  # pylint: disable=invalid-name
+    def _convert_reference_fields_to_keys(self, xblock):
         """
         Find all fields of type reference and convert the payload into UsageKeys
         """
@@ -1565,7 +1579,7 @@ class XMLParsingSystem(DescriptorSystem):
                     setattr(xblock, field.name, field_value)
 
 
-class ModuleSystem(MetricsMixin, ConfigurableFragmentWrapper, Runtime):  # pylint: disable=abstract-method
+class ModuleSystem(MetricsMixin, ConfigurableFragmentWrapper, Runtime):
     """
     This is an abstraction such that x_modules can function independent
     of the courseware (e.g. import into other types of courseware, LMS,
@@ -1584,7 +1598,6 @@ class ModuleSystem(MetricsMixin, ConfigurableFragmentWrapper, Runtime):  # pylin
             replace_urls, descriptor_runtime, user=None, filestore=None,
             debug=False, hostname="", xqueue=None, publish=None, node_path="",
             anonymous_student_id='', course_id=None,
-            open_ended_grading_interface=None, s3_interface=None,
             cache=None, can_execute_unsafe_code=None, replace_course_urls=None,
             replace_jump_to_id_urls=None, error_descriptor_class=None, get_real_user=None,
             field_data=None, get_user_role=None, rebind_noauth_module_to_user=None,
@@ -1679,9 +1692,6 @@ class ModuleSystem(MetricsMixin, ConfigurableFragmentWrapper, Runtime):  # pylin
         if publish:
             self.publish = publish
 
-        self.open_ended_grading_interface = open_ended_grading_interface
-        self.s3_interface = s3_interface
-
         self.cache = cache or DoNothingCache()
         self.can_execute_unsafe_code = can_execute_unsafe_code or (lambda: False)
         self.get_python_lib_zip = get_python_lib_zip or (lambda: None)
@@ -1748,7 +1758,6 @@ class CombinedSystem(object):
     #
     # At runtime, the ModuleSystem and/or DescriptorSystem will define those methods
     #
-    # pylint: disable=abstract-method
     def __init__(self, module_system, descriptor_system):
         # These attributes are set directly to __dict__ below to avoid a recursion in getattr/setattr.
         self._module_system = module_system

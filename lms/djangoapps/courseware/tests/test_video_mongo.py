@@ -4,6 +4,7 @@ import ddt
 import itertools
 import json
 from collections import OrderedDict
+from path import Path as path
 
 from lxml import etree
 from mock import patch, MagicMock, Mock
@@ -13,11 +14,17 @@ from django.conf import settings
 from django.test import TestCase
 from django.test.utils import override_settings
 
-from xmodule.video_module import VideoDescriptor, bumper_utils, video_utils
+from xmodule.video_module import VideoDescriptor, bumper_utils, video_utils, rewrite_video_url
 from xmodule.x_module import STUDENT_VIEW
 from xmodule.tests.test_video import VideoDescriptorTestBase, instantiate_descriptor
 from xmodule.tests.test_import import DummySystem
-
+from xmodule.video_module.transcripts_utils import save_to_store, Transcript
+from xmodule.modulestore.inheritance import own_metadata
+from xmodule.contentstore.content import StaticContent
+from xmodule.exceptions import NotFoundError
+from xmodule.modulestore.tests.django_utils import (
+    TEST_DATA_MONGO_MODULESTORE, TEST_DATA_SPLIT_MODULESTORE
+)
 from edxval.api import (
     create_profile, create_video, get_video_info, ValCannotCreateError, ValVideoNotFoundError
 )
@@ -681,10 +688,10 @@ class TestGetHtmlMethod(BaseTestXmodule):
 
     # pylint: disable=invalid-name
     @patch('xmodule.video_module.video_module.BrandingInfoConfig')
-    @patch('xmodule.video_module.video_module.get_video_from_cdn')
+    @patch('xmodule.video_module.video_module.rewrite_video_url')
     def test_get_html_cdn_source(self, mocked_get_video, mock_BrandingInfoConfig):
         """
-        Test if sources got from CDN.
+        Test if sources got from CDN
         """
 
         mock_BrandingInfoConfig.get_config.return_value = {
@@ -697,8 +704,8 @@ class TestGetHtmlMethod(BaseTestXmodule):
 
         def side_effect(*args, **kwargs):
             cdn = {
-                'http://example.com/example.mp4': 'http://cdn_example.com/example.mp4',
-                'http://example.com/example.webm': 'http://cdn_example.com/example.webm',
+                'http://example.com/example.mp4': 'http://cdn-example.com/example.mp4',
+                'http://example.com/example.webm': 'http://cdn-example.com/example.webm',
             }
             return cdn.get(args[1])
 
@@ -726,8 +733,8 @@ class TestGetHtmlMethod(BaseTestXmodule):
             'result': {
                 'download_video_link': u'example_source.mp4',
                 'sources': [
-                    u'http://cdn_example.com/example.mp4',
-                    u'http://cdn_example.com/example.webm'
+                    u'http://cdn-example.com/example.mp4',
+                    u'http://cdn-example.com/example.webm'
                 ],
             },
         }
@@ -793,6 +800,63 @@ class TestGetHtmlMethod(BaseTestXmodule):
                 context,
                 self.item_descriptor.xmodule_runtime.render_template('video.html', expected_context)
             )
+
+
+@attr('shard_1')
+class TestVideoCDNRewriting(BaseTestXmodule):
+    """
+    Tests for Video CDN.
+    """
+
+    def setUp(self, *args, **kwargs):
+        super(TestVideoCDNRewriting, self).setUp(*args, **kwargs)
+        self.original_video_file = "original_video.mp4"
+        self.original_video_url = "http://www.originalvideo.com/" + self.original_video_file
+
+    @patch.dict("django.conf.settings.CDN_VIDEO_URLS",
+                {"CN": "https://chinacdn.cn/"})
+    def test_rewrite_video_url_success(self):
+        """
+        Test successful CDN request.
+        """
+        cdn_response_video_url = settings.CDN_VIDEO_URLS["CN"] + self.original_video_file
+
+        self.assertEqual(
+            rewrite_video_url(settings.CDN_VIDEO_URLS["CN"], self.original_video_url),
+            cdn_response_video_url
+        )
+
+    @patch.dict("django.conf.settings.CDN_VIDEO_URLS",
+                {"CN": "https://chinacdn.cn/"})
+    def test_rewrite_url_concat(self):
+        """
+        Test that written URLs are returned clean despite input
+        """
+        cdn_response_video_url = settings.CDN_VIDEO_URLS["CN"] + "original_video.mp4"
+
+        self.assertEqual(
+            rewrite_video_url(settings.CDN_VIDEO_URLS["CN"] + "///", self.original_video_url),
+            cdn_response_video_url
+        )
+
+    def test_rewrite_video_url_invalid_url(self):
+        """
+        Test if no alternative video in CDN exists.
+        """
+        invalid_cdn_url = 'http://http://fakecdn.com/'
+        self.assertIsNone(rewrite_video_url(invalid_cdn_url, self.original_video_url))
+
+    def test_none_args(self):
+        """
+        Ensure None args return None
+        """
+        self.assertIsNone(rewrite_video_url(None, None))
+
+    def test_emptystring_args(self):
+        """
+        Ensure emptyrstring args return None
+        """
+        self.assertIsNone(rewrite_video_url("", ""))
 
 
 @attr('shard_1')
@@ -866,10 +930,77 @@ class TestVideoDescriptorInitialization(BaseTestXmodule):
         self.assertFalse(self.item_descriptor.download_video)
 
 
+@attr('shard_1')
+@ddt.ddt
+class TestEditorSavedMethod(BaseTestXmodule):
+    """
+    Make sure that `editor_saved` method works correctly.
+    """
+    CATEGORY = "video"
+    DATA = SOURCE_XML
+    METADATA = {}
+
+    def setUp(self):
+        super(TestEditorSavedMethod, self).setUp()
+        self.setup_course()
+        self.metadata = {
+            'source': 'http://youtu.be/3_yD_cEKoCk',
+            'html5_sources': ['http://example.org/video.mp4'],
+        }
+        # path to subs_3_yD_cEKoCk.srt.sjson file
+        self.file_name = 'subs_3_yD_cEKoCk.srt.sjson'
+        # pylint: disable=no-value-for-parameter
+        self.test_dir = path(__file__).abspath().dirname().dirname().dirname().dirname().dirname()
+        self.file_path = self.test_dir + '/common/test/data/uploads/' + self.file_name
+
+    @ddt.data(TEST_DATA_MONGO_MODULESTORE, TEST_DATA_SPLIT_MODULESTORE)
+    def test_editor_saved_when_html5_sub_not_exist(self, default_store):
+        """
+        When there is youtube_sub exist but no html5_sub present for
+        html5_sources, editor_saved function will generate new html5_sub
+        for video.
+        """
+        self.MODULESTORE = default_store  # pylint: disable=invalid-name
+        self.initialize_module(metadata=self.metadata)
+        item = self.store.get_item(self.item_descriptor.location)
+        with open(self.file_path, "r") as myfile:
+            save_to_store(myfile.read(), self.file_name, 'text/sjson', item.location)
+        item.sub = "3_yD_cEKoCk"
+        # subs_video.srt.sjson does not exist before calling editor_saved function
+        with self.assertRaises(NotFoundError):
+            Transcript.get_asset(item.location, 'subs_video.srt.sjson')
+        old_metadata = own_metadata(item)
+        # calling editor_saved will generate new file subs_video.srt.sjson for html5_sources
+        item.editor_saved(self.user, old_metadata, None)
+        self.assertIsInstance(Transcript.get_asset(item.location, 'subs_3_yD_cEKoCk.srt.sjson'), StaticContent)
+        self.assertIsInstance(Transcript.get_asset(item.location, 'subs_video.srt.sjson'), StaticContent)
+
+    @ddt.data(TEST_DATA_MONGO_MODULESTORE, TEST_DATA_SPLIT_MODULESTORE)
+    def test_editor_saved_when_youtube_and_html5_subs_exist(self, default_store):
+        """
+        When both youtube_sub and html5_sub already exist then no new
+        sub will be generated by editor_saved function.
+        """
+        self.MODULESTORE = default_store
+        self.initialize_module(metadata=self.metadata)
+        item = self.store.get_item(self.item_descriptor.location)
+        with open(self.file_path, "r") as myfile:
+            save_to_store(myfile.read(), self.file_name, 'text/sjson', item.location)
+            save_to_store(myfile.read(), 'subs_video.srt.sjson', 'text/sjson', item.location)
+        item.sub = "3_yD_cEKoCk"
+        # subs_3_yD_cEKoCk.srt.sjson and subs_video.srt.sjson already exist
+        self.assertIsInstance(Transcript.get_asset(item.location, self.file_name), StaticContent)
+        self.assertIsInstance(Transcript.get_asset(item.location, 'subs_video.srt.sjson'), StaticContent)
+        old_metadata = own_metadata(item)
+        with patch('xmodule.video_module.video_module.manage_video_subtitles_save') as manage_video_subtitles_save:
+            item.editor_saved(self.user, old_metadata, None)
+            self.assertFalse(manage_video_subtitles_save.called)
+
+
 @ddt.ddt
 class TestVideoDescriptorStudentViewJson(TestCase):
     """
-    Tests for the student_view_json method on VideoDescriptor.
+    Tests for the student_view_data method on VideoDescriptor.
     """
     TEST_DURATION = 111.0
     TEST_PROFILE = "mobile"
@@ -914,15 +1045,15 @@ class TestVideoDescriptorStudentViewJson(TestCase):
 
     def get_result(self, allow_cache_miss=True):
         """
-        Returns the result from calling the video's student_view_json method.
+        Returns the result from calling the video's student_view_data method.
         Arguments:
-            allow_cache_miss is passed in the context to the student_view_json method.
+            allow_cache_miss is passed in the context to the student_view_data method.
         """
         context = {
             "profiles": [self.TEST_PROFILE],
             "allow_cache_miss": "True" if allow_cache_miss else "False"
         }
-        return self.video.student_view_json(context)
+        return self.video.student_view_data(context)
 
     def verify_result_with_fallback_url(self, result):
         """

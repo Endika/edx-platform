@@ -13,7 +13,7 @@ import uuid
 import ddt
 from contracts import contract
 from nose.plugins.attrib import attr
-from django.core.cache import get_cache, InvalidCacheBackendError
+from django.core.cache import caches, InvalidCacheBackendError
 
 from openedx.core.lib import tempdir
 from xblock.fields import Reference, ReferenceList, ReferenceValueDict
@@ -934,7 +934,7 @@ class TestCourseStructureCache(SplitModuleTest):
     def setUp(self):
         # use the default cache, since the `course_structure_cache`
         # is a dummy cache during testing
-        self.cache = get_cache('default')
+        self.cache = caches['default']
 
         # make sure we clear the cache before every test...
         self.cache.clear()
@@ -1198,6 +1198,10 @@ class SplitModuleItemTests(SplitModuleTest):
         self.assertEqual(len(matches), 3)
         matches = modulestore().get_items(locator, qualifiers={'category': 'garbage'})
         self.assertEqual(len(matches), 0)
+        matches = modulestore().get_items(locator, qualifiers={'name': 'chapter1'})
+        self.assertEqual(len(matches), 1)
+        matches = modulestore().get_items(locator, qualifiers={'name': ['chapter1', 'chapter2']})
+        self.assertEqual(len(matches), 2)
         matches = modulestore().get_items(
             locator,
             qualifiers={'category': 'chapter'},

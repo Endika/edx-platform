@@ -120,7 +120,7 @@ class SystemTestSuite(NoseTestSuite):
     def cmd(self):
         cmd = (
             './manage.py {system} test --verbosity={verbosity} '
-            '{test_id} {test_opts} --traceback --settings=test {extra} '
+            '{test_id} {test_opts} --settings=test {extra} '
             '--with-xunit --xunit-file={xunit_report}'.format(
                 system=self.root,
                 verbosity=self.verbosity,
@@ -150,6 +150,7 @@ class SystemTestSuite(NoseTestSuite):
             " common/djangoapps/*"
             " openedx/core/djangoapps/*"
             " openedx/tests/*"
+            " openedx/core/lib/*"
         )
 
         if self.root in ('lms', 'cms'):
@@ -157,6 +158,7 @@ class SystemTestSuite(NoseTestSuite):
 
         if self.root == 'lms':
             default_test_id += " {system}/tests.py"
+            default_test_id += " openedx/core/djangolib"
 
         if self.root == 'cms':
             default_test_id += " {system}/tests/*"

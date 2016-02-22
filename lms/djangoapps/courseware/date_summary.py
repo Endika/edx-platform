@@ -1,4 +1,3 @@
-# pylint: disable=missing-docstring
 """
 This module provides date summary blocks for the Course Info
 page. Each block gives information about a particular
@@ -6,41 +5,62 @@ course-run-specific date which will be displayed to the user.
 """
 from datetime import datetime
 
+from babel.dates import format_timedelta
 from django.core.urlresolvers import reverse
 from django.utils.translation import ugettext as _
+from django.utils.translation import to_locale, get_language
 from edxmako.shortcuts import render_to_string
 from lazy import lazy
 import pytz
 
 from course_modes.models import CourseMode
-from verify_student.models import VerificationDeadline, SoftwareSecurePhotoVerification
+from lms.djangoapps.verify_student.models import VerificationDeadline, SoftwareSecurePhotoVerification
 from student.models import CourseEnrollment
 
 
 class DateSummary(object):
     """Base class for all date summary blocks."""
 
-    # The CSS class of this summary. Indicates the type of information
-    # this summary block contains, and its urgency.
-    css_class = ''
+    @property
+    def css_class(self):
+        """
+        The CSS class of this summary. Indicates the type of information
+        this summary block contains, and its urgency.
+        """
+        return ''
 
-    # The title of this summary.
-    title = ''
+    @property
+    def title(self):
+        """The title of this summary."""
+        return ''
 
-    # The detail text displayed by this summary.
-    description = ''
+    @property
+    def description(self):
+        """The detail text displayed by this summary."""
+        return ''
 
-    # This summary's date.
-    date = None
+    @property
+    def date(self):
+        """This summary's date."""
+        return None
 
-    # The format to display this date in. By default, displays like Jan 01, 2015.
-    date_format = '%b %d, %Y'
+    @property
+    def date_format(self):
+        """
+        The format to display this date in. By default, displays like Jan
+        01, 2015.
+        """
+        return '%b %d, %Y'
 
-    # The location to link to for more information.
-    link = ''
+    @property
+    def link(self):
+        """The location to link to for more information."""
+        return ''
 
-    # The text of the link.
-    link_text = ''
+    @property
+    def link_text(self):
+        """The text of the link."""
+        return ''
 
     def __init__(self, course, user):
         self.course = course
@@ -48,12 +68,9 @@ class DateSummary(object):
 
     def get_context(self):
         """Return the template context used to render this summary block."""
-        date = ''
-        if self.date is not None:
-            date = self.date.strftime(self.date_format)
         return {
             'title': self.title,
-            'date': date,
+            'date': self._format_date(),
             'description': self.description,
             'css_class': self.css_class,
             'link': self.link,
@@ -65,6 +82,35 @@ class DateSummary(object):
         Return an HTML representation of this summary block.
         """
         return render_to_string('courseware/date_summary.html', self.get_context())
+
+    def _format_date(self):
+        """
+        Return this block's date in a human-readable format. If the date
+        is None, returns the empty string.
+        """
+        if self.date is None:
+            return ''
+        locale = to_locale(get_language())
+        delta = self.date - datetime.now(pytz.UTC)
+        try:
+            relative_date = format_timedelta(delta, locale=locale)
+        # Babel doesn't have translations for Esperanto, so we get
+        # a KeyError when testing translations with
+        # ?preview-lang=eo. This should not happen with any other
+        # languages. See https://github.com/python-babel/babel/issues/107
+        except KeyError:
+            relative_date = format_timedelta(delta)
+        date_has_passed = delta.days < 0
+        # Translators: 'absolute' is a date such as "Jan 01,
+        # 2020". 'relative' is a fuzzy description of the time until
+        # 'absolute'. For example, 'absolute' might be "Jan 01, 2020",
+        # and if today were December 5th, 2020, 'relative' would be "1
+        # month".
+        date_format = _("{relative} ago - {absolute}") if date_has_passed else _("in {relative} - {absolute}")
+        return date_format.format(
+            relative=relative_date,
+            absolute=self.date.strftime(self.date_format),
+        )
 
     @property
     def is_enabled(self):
@@ -92,6 +138,7 @@ class TodaysDate(DateSummary):
     """
     css_class = 'todays-date'
     is_enabled = True
+    date_format = '%b %d, %Y (%H:%M {utc})'.format(utc=_('UTC'))
 
     # The date is shown in the title, no need to display it again.
     def get_context(self):
@@ -126,7 +173,10 @@ class CourseEndDate(DateSummary):
     """
     css_class = 'end-date'
     title = _('Course End')
-    is_enabled = True
+
+    @property
+    def is_enabled(self):
+        return self.date is not None
 
     @property
     def description(self):
@@ -146,7 +196,10 @@ class VerifiedUpgradeDeadlineDate(DateSummary):
     """
     css_class = 'verified-upgrade-deadline'
     title = _('Verification Upgrade Deadline')
-    description = _('You are still eligible to upgrade to a Verified Certificate!')
+    description = _(
+        'You are still eligible to upgrade to a Verified Certificate! '
+        'Pursue it to highlight the knowledge and skills you gain in this course.'
+    )
     link_text = _('Upgrade to Verified Certificate')
 
     @property

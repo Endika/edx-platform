@@ -7,6 +7,7 @@ from uuid import uuid4
 
 from mock import patch
 
+import django.core.cache
 from django.conf import settings
 from django.contrib.auth.models import User
 from django.test import TestCase
@@ -18,9 +19,11 @@ from openedx.core.lib.tempdir import mkdtemp_clean
 
 from xmodule.contentstore.django import _CONTENTSTORE
 from xmodule.modulestore import ModuleStoreEnum
-from xmodule.modulestore.django import modulestore, clear_existing_modulestores
+from xmodule.modulestore.django import modulestore, clear_existing_modulestores, SignalHandler
 from xmodule.modulestore.tests.mongo_connection import MONGO_PORT_NUM, MONGO_HOST
 from xmodule.modulestore.tests.factories import XMODULE_FACTORY_LOCK
+
+from openedx.core.djangoapps.bookmarks.signals import trigger_update_xblocks_cache_task
 
 
 class StoreConstructors(object):
@@ -158,7 +161,7 @@ def xml_store_config(data_dir, source_dirs=None):
     return store
 
 
-@patch('xmodule.modulestore.django.create_modulestore_instance')
+@patch('xmodule.modulestore.django.create_modulestore_instance', autospec=True)
 def drop_mongo_collections(mock_create):
     """
     If using a Mongo-backed modulestore & contentstore, drop the collections.
@@ -211,6 +214,16 @@ TEST_DATA_SPLIT_MODULESTORE = mixed_store_config(
     include_xml=False,
     store_order=[StoreConstructors.split, StoreConstructors.draft]
 )
+
+
+def clear_all_caches():
+    """Clear all caches so that cache info doesn't leak across test cases."""
+    # This will no longer be necessary when Django adds (in Django 1.10?):
+    #     https://code.djangoproject.com/ticket/11505
+    for cache in django.core.cache.caches.all():
+        cache.clear()
+
+    RequestCache().clear_request_cache()
 
 
 class SharedModuleStoreTestCase(TestCase):
@@ -266,7 +279,7 @@ class SharedModuleStoreTestCase(TestCase):
     @classmethod
     def tearDownClass(cls):
         drop_mongo_collections()  # pylint: disable=no-value-for-parameter
-        RequestCache().clear_request_cache()
+        clear_all_caches()
         XMODULE_FACTORY_LOCK.disable()
         cls._settings_override.__exit__(None, None, None)
 
@@ -277,6 +290,11 @@ class SharedModuleStoreTestCase(TestCase):
         # that they're recalculated for every test
         OverrideFieldData.provider_classes = None
         super(SharedModuleStoreTestCase, self).setUp()
+
+    def tearDown(self):
+        """Reset caches."""
+        clear_all_caches()
+        super(SharedModuleStoreTestCase, self).tearDown()
 
     def reset(self):
         """
@@ -317,10 +335,20 @@ class SharedModuleStoreTestCase(TestCase):
         @functools.wraps(f)
         def wrapper(*args, **kwargs):
             """Call the object method, and reset the test case afterwards."""
-            return_val = f(*args, **kwargs)
-            obj = args[0]
-            obj.reset()
-            return return_val
+            try:
+                # Attempt execution of the test.
+                return_val = f(*args, **kwargs)
+            except:
+                # If the test raises an exception, re-raise it.
+                raise
+            else:
+                # Otherwise, return the test's return value.
+                return return_val
+            finally:
+                # In either case, call SharedModuleStoreTestCase.reset() "on the way out."
+                # For more, see here: https://docs.python.org/2/tutorial/errors.html#defining-clean-up-actions.
+                obj = args[0]
+                obj.reset()
 
         return wrapper
 
@@ -382,7 +410,7 @@ class ModuleStoreTestCase(TestCase):
         clear_existing_modulestores()
 
         self.addCleanup(drop_mongo_collections)
-        self.addCleanup(RequestCache().clear_request_cache)
+        self.addCleanup(clear_all_caches)
 
         # Enable XModuleFactories for the space of this test (and its setUp).
         self.addCleanup(XMODULE_FACTORY_LOCK.disable)
@@ -394,6 +422,8 @@ class ModuleStoreTestCase(TestCase):
         OverrideFieldData.provider_classes = None
 
         super(ModuleStoreTestCase, self).setUp()
+
+        SignalHandler.course_published.disconnect(trigger_update_xblocks_cache_task)
 
         self.store = modulestore()
 

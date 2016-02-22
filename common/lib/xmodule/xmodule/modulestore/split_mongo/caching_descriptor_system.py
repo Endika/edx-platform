@@ -209,20 +209,20 @@ class CachingDescriptorSystem(MakoDescriptorSystem, EditInfoRuntimeMixin):
             parent = course_key.make_usage_key(parent_key.type, parent_key.id)
         else:
             parent = None
-        kvs = SplitMongoKVS(
-            definition_loader,
-            converted_fields,
-            converted_defaults,
-            parent=parent,
-            field_decorator=kwargs.get('field_decorator')
-        )
-
-        if InheritanceMixin in self.modulestore.xblock_mixins:
-            field_data = inheriting_field_data(kvs)
-        else:
-            field_data = KvsFieldData(kvs)
-
         try:
+            kvs = SplitMongoKVS(
+                definition_loader,
+                converted_fields,
+                converted_defaults,
+                parent=parent,
+                field_decorator=kwargs.get('field_decorator')
+            )
+
+            if InheritanceMixin in self.modulestore.xblock_mixins:
+                field_data = inheriting_field_data(kvs)
+            else:
+                field_data = KvsFieldData(kvs)
+
             module = self.construct_xblock_from_class(
                 class_,
                 ScopeIds(None, block_key.type, definition_id, block_locator),
@@ -281,9 +281,9 @@ class CachingDescriptorSystem(MakoDescriptorSystem, EditInfoRuntimeMixin):
                 self._compute_subtree_edited_internal(
                     block_data, xblock.location.course_key
                 )
-            setattr(xblock, '_subtree_edited_by', block_data.edit_info._subtree_edited_by)
+            xblock._subtree_edited_by = block_data.edit_info._subtree_edited_by
 
-        return getattr(xblock, '_subtree_edited_by')
+        return xblock._subtree_edited_by
 
     @contract(xblock='XBlock')
     def get_subtree_edited_on(self, xblock):
@@ -297,9 +297,9 @@ class CachingDescriptorSystem(MakoDescriptorSystem, EditInfoRuntimeMixin):
                 self._compute_subtree_edited_internal(
                     block_data, xblock.location.course_key
                 )
-            setattr(xblock, '_subtree_edited_on', block_data.edit_info._subtree_edited_on)
+            xblock._subtree_edited_on = block_data.edit_info._subtree_edited_on
 
-        return getattr(xblock, '_subtree_edited_on')
+        return xblock._subtree_edited_on
 
     def get_published_by(self, xblock):
         """

@@ -10,6 +10,7 @@ from django.contrib.auth.decorators import login_required
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.http import HttpResponse, HttpResponseBadRequest
 
+from openedx.core.djangolib.js_utils import dump_js_escaped_json
 from contentstore.views.helpers import create_xblock, remove_entrance_exam_graders
 from contentstore.views.item import delete_item
 from models.settings.course_metadata import CourseMetadata
@@ -176,7 +177,7 @@ def _get_entrance_exam(request, course_key):  # pylint: disable=W0613
     course = modulestore().get_course(course_key)
     if course is None:
         return HttpResponse(status=400)
-    if not getattr(course, 'entrance_exam_id'):
+    if not course.entrance_exam_id:
         return HttpResponse(status=404)
     try:
         exam_key = UsageKey.from_string(course.entrance_exam_id)
@@ -185,8 +186,8 @@ def _get_entrance_exam(request, course_key):  # pylint: disable=W0613
     try:
         exam_descriptor = modulestore().get_item(exam_key)
         return HttpResponse(
-            _serialize_entrance_exam(exam_descriptor),
-            status=200, mimetype='application/json')
+            dump_js_escaped_json({'locator': unicode(exam_descriptor.location)}),
+            status=200, content_type='application/json')
     except ItemNotFoundError:
         return HttpResponse(status=404)
 
@@ -227,7 +228,7 @@ def _delete_entrance_exam(request, course_key):
     # Reset the entrance exam flags on the course
     # Reload the course so we have the latest state
     course = store.get_course(course_key)
-    if getattr(course, 'entrance_exam_id'):
+    if course.entrance_exam_id:
         metadata = {
             'entrance_exam_enabled': False,
             'entrance_exam_minimum_score_pct': None,
@@ -239,15 +240,6 @@ def _delete_entrance_exam(request, course_key):
         remove_entrance_exam_graders(course_key, request.user)
 
     return HttpResponse(status=204)
-
-
-def _serialize_entrance_exam(entrance_exam_module):
-    """
-    Internal helper to convert an entrance exam module/object into JSON
-    """
-    return json.dumps({
-        'locator': unicode(entrance_exam_module.location)
-    })
 
 
 def add_entrance_exam_milestone(course_id, x_block):

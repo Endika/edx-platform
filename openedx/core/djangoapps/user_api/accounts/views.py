@@ -5,10 +5,10 @@ For more information, see:
 https://openedx.atlassian.net/wiki/display/TNL/User+API
 """
 from django.db import transaction
-from rest_framework.views import APIView
+from rest_framework import status, permissions
+from rest_framework_jwt.authentication import JSONWebTokenAuthentication
 from rest_framework.response import Response
-from rest_framework import status
-from rest_framework import permissions
+from rest_framework.views import APIView
 
 from openedx.core.lib.api.authentication import (
     SessionAuthenticationAllowInactiveUser,
@@ -17,7 +17,6 @@ from openedx.core.lib.api.authentication import (
 from ..errors import UserNotFound, UserNotAuthorized, AccountUpdateError, AccountValidationError
 from openedx.core.lib.api.parsers import MergePatchParser
 from .api import get_account_settings, update_account_settings
-from .serializers import PROFILE_IMAGE_KEY_PREFIX
 
 
 class AccountView(APIView):
@@ -138,7 +137,9 @@ class AccountView(APIView):
 
             If the update is successful, updated user account data is returned.
     """
-    authentication_classes = (OAuth2AuthenticationAllowInactiveUser, SessionAuthenticationAllowInactiveUser)
+    authentication_classes = (
+        OAuth2AuthenticationAllowInactiveUser, SessionAuthenticationAllowInactiveUser, JSONWebTokenAuthentication
+    )
     permission_classes = (permissions.IsAuthenticated,)
     parser_classes = (MergePatchParser,)
 
@@ -162,7 +163,7 @@ class AccountView(APIView):
         else an error response with status code 415 will be returned.
         """
         try:
-            with transaction.commit_on_success():
+            with transaction.atomic():
                 update_account_settings(request.user, request.data, username=username)
                 account_settings = get_account_settings(request, username)
         except UserNotAuthorized:

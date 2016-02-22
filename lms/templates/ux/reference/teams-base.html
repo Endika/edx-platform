@@ -1,6 +1,5 @@
 <%! from django.utils.translation import ugettext as _ %>
 <%! from django.template.defaultfilters import escapejs %>
-<%! from microsite_configuration import page_title_breadcrumbs %>
 <%! from edxnotes.helpers import is_feature_enabled as is_edxnotes_enabled %>
 <%inherit file="/main.html" />
 <%namespace name='static' file='/static_content.html'/>
@@ -15,10 +14,9 @@ Teams | Course name
 <header class="global slim" aria-label="Main" role="banner">
   <div class="wrapper-header nav-container">
     <h1 class="logo" itemscope="" itemtype="http://schema.org/Organization">
-      <a href="/" title="Home page" itemprop="url">
+      <a href="/" itemprop="url">
 
-            <img src="/static/images/edx-theme/edx-logo-77x36.png" alt="Your Platform Name Here" title="Your Platform Name Here" itemprop="url" />
-            <span class="sr">Home Page</span>
+            <img src="/static/images/edx-theme/edx-logo-77x36.png" alt="Your Platform Name Here Home Page" itemprop="logo" />
 
       </a>
     </h1>
@@ -97,7 +95,7 @@ Teams | Course name
 <%block name="headextra">
 <%static:css group='style-course-vendor'/>
 <%static:css group='style-course'/>
-<%block name="nav_skip">${"#seq_content" if section_title else "#course-content"}</%block>
+<%block name="nav_skip">${"#content" if section_title else "#content"}</%block>
 </%block>
 
 <%block name="js_extra">

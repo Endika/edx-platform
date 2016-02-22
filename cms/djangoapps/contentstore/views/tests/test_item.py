@@ -14,6 +14,7 @@ from django.test.client import RequestFactory
 from django.core.urlresolvers import reverse
 from contentstore.utils import reverse_usage_url, reverse_course_url
 
+from openedx.core.djangoapps.self_paced.models import SelfPacedConfiguration
 from contentstore.views.component import (
     component_handler, get_component_templates
 )
@@ -23,6 +24,7 @@ from contentstore.views.item import (
 )
 from contentstore.tests.utils import CourseTestCase
 from student.tests.factories import UserFactory
+from xblock_django.models import XBlockDisableConfig
 from xmodule.capa_module import CapaDescriptor
 from xmodule.modulestore import ModuleStoreEnum
 from xmodule.modulestore.django import modulestore
@@ -1328,6 +1330,11 @@ class TestComponentTemplates(CourseTestCase):
         super(TestComponentTemplates, self).setUp()
         self.templates = get_component_templates(self.course)
 
+        # Initialize the deprecated modules settings with empty list
+        XBlockDisableConfig.objects.create(
+            disabled_create_blocks='', enabled=True
+        )
+
     def get_templates_of_type(self, template_type):
         """
         Returns the templates for the specified type, or None if none is found.
@@ -1374,42 +1381,35 @@ class TestComponentTemplates(CourseTestCase):
         self.assertNotEqual(only_template.get('category'), 'video')
         self.assertNotEqual(only_template.get('category'), 'openassessment')
 
-    def test_advanced_components_without_display_name(self):
-        """
-        Test that advanced components without display names display their category instead.
-        """
-        self.course.advanced_modules.append('graphical_slider_tool')
-        self.templates = get_component_templates(self.course)
-        template = self.get_templates_of_type('advanced')[0]
-        self.assertEqual(template.get('display_name'), 'graphical_slider_tool')
-
     def test_advanced_problems(self):
         """
         Test the handling of advanced problem templates.
         """
         problem_templates = self.get_templates_of_type('problem')
-        ora_template = self.get_template(problem_templates, u'Peer Assessment')
-        self.assertIsNotNone(ora_template)
-        self.assertEqual(ora_template.get('category'), 'openassessment')
-        self.assertIsNone(ora_template.get('boilerplate_name', None))
+        circuit_template = self.get_template(problem_templates, u'Circuit Schematic Builder')
+        self.assertIsNotNone(circuit_template)
+        self.assertEqual(circuit_template.get('category'), 'problem')
+        self.assertEqual(circuit_template.get('boilerplate_name'), 'circuitschematic.yaml')
 
-    @patch('django.conf.settings.DEPRECATED_ADVANCED_COMPONENT_TYPES', ["combinedopenended", "peergrading"])
-    def test_ora1_no_advance_component_button(self):
+    @patch('django.conf.settings.DEPRECATED_ADVANCED_COMPONENT_TYPES', [])
+    def test_deprecated_no_advance_component_button(self):
         """
-        Test that there will be no `Advanced` button on unit page if `combinedopenended` and `peergrading` are
-        deprecated provided that there are only 'combinedopenended', 'peergrading' modules in `Advanced Module List`
+        Test that there will be no `Advanced` button on unit page if units are
+        deprecated provided that they are the only modules in `Advanced Module List`
         """
-        self.course.advanced_modules.extend(['combinedopenended', 'peergrading'])
+        XBlockDisableConfig.objects.create(disabled_create_blocks='poll survey', enabled=True)
+        self.course.advanced_modules.extend(['poll', 'survey'])
         templates = get_component_templates(self.course)
         button_names = [template['display_name'] for template in templates]
         self.assertNotIn('Advanced', button_names)
 
-    @patch('django.conf.settings.DEPRECATED_ADVANCED_COMPONENT_TYPES', ["combinedopenended", "peergrading"])
-    def test_cannot_create_ora1_problems(self):
+    @patch('django.conf.settings.DEPRECATED_ADVANCED_COMPONENT_TYPES', [])
+    def test_cannot_create_deprecated_problems(self):
         """
-        Test that we can't create ORA1 problems if `combinedopenended` and `peergrading` are deprecated
+        Test that we can't create problems if they are deprecated
         """
-        self.course.advanced_modules.extend(['annotatable', 'combinedopenended', 'peergrading'])
+        XBlockDisableConfig.objects.create(disabled_create_blocks='poll survey', enabled=True)
+        self.course.advanced_modules.extend(['annotatable', 'poll', 'survey'])
         templates = get_component_templates(self.course)
         button_names = [template['display_name'] for template in templates]
         self.assertIn('Advanced', button_names)
@@ -1417,18 +1417,18 @@ class TestComponentTemplates(CourseTestCase):
         template_display_names = [template['display_name'] for template in templates[0]['templates']]
         self.assertEqual(template_display_names, ['Annotation'])
 
-    @patch('django.conf.settings.DEPRECATED_ADVANCED_COMPONENT_TYPES', [])
-    def test_create_ora1_problems(self):
+    @patch('django.conf.settings.DEPRECATED_ADVANCED_COMPONENT_TYPES', ['poll'])
+    def test_create_non_deprecated_problems(self):
         """
-        Test that we can create ORA1 problems if `combinedopenended` and `peergrading` are not deprecated
+        Test that we can create problems if they are not deprecated
         """
-        self.course.advanced_modules.extend(['annotatable', 'combinedopenended', 'peergrading'])
+        self.course.advanced_modules.extend(['annotatable', 'poll', 'survey'])
         templates = get_component_templates(self.course)
         button_names = [template['display_name'] for template in templates]
         self.assertIn('Advanced', button_names)
-        self.assertEqual(len(templates[0]['templates']), 3)
+        self.assertEqual(len(templates[0]['templates']), 2)
         template_display_names = [template['display_name'] for template in templates[0]['templates']]
-        self.assertEqual(template_display_names, ['Annotation', 'Open Response Assessment', 'Peer Grading Interface'])
+        self.assertEqual(template_display_names, ['Annotation', 'Survey'])
 
 
 @ddt.ddt
@@ -1642,7 +1642,7 @@ class TestXBlockInfo(ItemTest):
         self.assertEqual(xblock_info['display_name'], 'Week 1')
         self.assertTrue(xblock_info['published'])
         self.assertIsNone(xblock_info.get('edited_by', None))
-        self.assertEqual(xblock_info['course_graders'], '["Homework", "Lab", "Midterm Exam", "Final Exam"]')
+        self.assertEqual(xblock_info['course_graders'], ['Homework', 'Lab', 'Midterm Exam', 'Final Exam'])
         self.assertEqual(xblock_info['start'], '2030-01-01T00:00:00Z')
         self.assertEqual(xblock_info['graded'], False)
         self.assertEqual(xblock_info['due'], None)
@@ -1848,6 +1848,7 @@ class TestLibraryXBlockCreation(ItemTest):
         self.assertFalse(lib.children)
 
 
+@ddt.ddt
 class TestXBlockPublishingInfo(ItemTest):
     """
     Unit tests for XBlock's outline handling.
@@ -2170,3 +2171,31 @@ class TestXBlockPublishingInfo(ItemTest):
         self._verify_has_staff_only_message(xblock_info, True)
         self._verify_has_staff_only_message(xblock_info, True, path=self.FIRST_SUBSECTION_PATH)
         self._verify_has_staff_only_message(xblock_info, True, path=self.FIRST_UNIT_PATH)
+
+    @ddt.data(ModuleStoreEnum.Type.mongo, ModuleStoreEnum.Type.split)
+    def test_self_paced_item_visibility_state(self, store_type):
+        """
+        Test that in self-paced course, item has `live` visibility state.
+        Test that when item was initially in `scheduled` state in instructor mode, change course pacing to self-paced,
+        now in self-paced course, item should have `live` visibility state.
+        """
+        SelfPacedConfiguration(enabled=True).save()
+
+        # Create course, chapter and setup future release date to make chapter in scheduled state
+        course = CourseFactory.create(default_store=store_type)
+        chapter = self._create_child(course, 'chapter', "Test Chapter")
+        self._set_release_date(chapter.location, datetime.now(UTC) + timedelta(days=1))
+
+        # Check that chapter has scheduled state
+        xblock_info = self._get_xblock_info(chapter.location)
+        self._verify_visibility_state(xblock_info, VisibilityState.ready)
+        self.assertFalse(course.self_paced)
+
+        # Change course pacing to self paced
+        course.self_paced = True
+        self.store.update_item(course, self.user.id)
+        self.assertTrue(course.self_paced)
+
+        # Check that in self paced course content has live state now
+        xblock_info = self._get_xblock_info(chapter.location)
+        self._verify_visibility_state(xblock_info, VisibilityState.live)

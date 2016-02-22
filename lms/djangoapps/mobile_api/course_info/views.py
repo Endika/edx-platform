@@ -21,7 +21,7 @@ class CourseUpdatesList(generics.ListAPIView):
 
     **Example Request**
 
-        GET /api/mobile/v0.5/course_info/{organization}/{course_number}/{course_run}/updates
+        GET /api/mobile/v0.5/course_info/{course_id}/updates
 
     **Response Values**
 
@@ -37,7 +37,7 @@ class CourseUpdatesList(generics.ListAPIView):
 
     @mobile_course_access()
     def list(self, request, course, *args, **kwargs):
-        course_updates_module = get_course_info_section_module(request, course, 'updates')
+        course_updates_module = get_course_info_section_module(request, request.user, course, 'updates')
         update_items = get_course_update_items(course_updates_module)
 
         updates_to_show = [
@@ -65,7 +65,7 @@ class CourseHandoutsList(generics.ListAPIView):
 
     **Example Request**
 
-        GET /api/mobile/v0.5/course_info/{organization}/{course_number}/{course_run}/handouts
+        GET /api/mobile/v0.5/course_info/{course_id}/handouts
 
     **Response Values**
 
@@ -77,15 +77,19 @@ class CourseHandoutsList(generics.ListAPIView):
 
     @mobile_course_access()
     def list(self, request, course, *args, **kwargs):
-        course_handouts_module = get_course_info_section_module(request, course, 'handouts')
+        course_handouts_module = get_course_info_section_module(request, request.user, course, 'handouts')
         if course_handouts_module:
-            handouts_html = course_handouts_module.data
-            handouts_html = replace_static_urls(
-                handouts_html,
-                course_id=course.id,
-                static_asset_path=course.static_asset_path)
-            handouts_html = make_static_urls_absolute(self.request, handouts_html)
+            if course_handouts_module.data == "<ol></ol>":
+                handouts_html = None
+            else:
+                handouts_html = course_handouts_module.data
+                handouts_html = replace_static_urls(
+                    handouts_html,
+                    course_id=course.id,
+                    static_asset_path=course.static_asset_path
+                )
+                handouts_html = make_static_urls_absolute(self.request, handouts_html)
             return Response({'handouts_html': handouts_html})
         else:
             # course_handouts_module could be None if there are no handouts
-            raise Http404(u"No handouts for {}".format(unicode(course.id)))
+            return Response({'handouts_html': None})

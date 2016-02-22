@@ -42,12 +42,13 @@ from eventtracking import tracker
 from opaque_keys.edx.keys import CourseKey
 from opaque_keys.edx.locations import SlashSeparatedCourseKey
 from simple_history.models import HistoricalRecords
-from south.modelsinspector import add_introspection_rules
 from track import contexts
 from xmodule_django.models import CourseKeyField, NoneToEmptyManager
 
 from certificates.models import GeneratedCertificate
 from course_modes.models import CourseMode
+from enrollment.api import _default_course_mode
+from microsite_configuration import microsite
 import lms.lib.comment_client as cc
 from openedx.core.djangoapps.commerce.utils import ecommerce_api_client, ECOMMERCE_DATE_FORMAT
 from openedx.core.djangoapps.content.course_overviews.models import CourseOverview
@@ -189,7 +190,7 @@ class UserStanding(models.Model):
         (ACCOUNT_ENABLED, u"Account Enabled"),
     )
 
-    user = models.ForeignKey(User, db_index=True, related_name='standing', unique=True)
+    user = models.OneToOneField(User, db_index=True, related_name='standing')
     account_status = models.CharField(
         blank=True, max_length=31, choices=USER_STANDING_CHOICES
     )
@@ -292,7 +293,7 @@ class UserProfile(models.Model):
         year_of_birth = self.year_of_birth
         year = datetime.now(UTC).year
         if year_of_birth is not None:
-            return year - year_of_birth
+            return self._calculate_age(year, year_of_birth)
 
     @property
     def level_of_education_display(self):
@@ -364,13 +365,24 @@ class UserProfile(models.Model):
         if date is None:
             age = self.age
         else:
-            age = date.year - year_of_birth
+            age = self._calculate_age(date.year, year_of_birth)
 
-        return age <= age_limit
+        return age < age_limit
 
     def __enumerable_to_display(self, enumerables, enum_value):
         """ Get the human readable value from an enumerable list of key-value pairs. """
         return dict(enumerables)[enum_value]
+
+    def _calculate_age(self, year, year_of_birth):
+        """Calculate the youngest age for a user with a given year of birth.
+
+        :param year: year
+        :param year_of_birth: year of birth
+        :return: youngest age a user could be for the given year
+        """
+        # There are legal implications regarding how we can contact users and what information we can make public
+        # based on their age, so we must take the most conservative estimate.
+        return year - year_of_birth - 1
 
     @classmethod
     def country_cache_key_name(cls, user_id):
@@ -493,7 +505,7 @@ class Registration(models.Model):
     class Meta(object):
         db_table = "auth_registration"
 
-    user = models.ForeignKey(User, unique=True)
+    user = models.OneToOneField(User)
     activation_key = models.CharField(('activation key'), max_length=32, unique=True, db_index=True)
 
     def register(self, user):
@@ -504,7 +516,28 @@ class Registration(models.Model):
 
     def activate(self):
         self.user.is_active = True
+        self._track_activation()
         self.user.save()
+
+    def _track_activation(self):
+        """ Update the isActive flag in mailchimp for activated users."""
+        has_segment_key = getattr(settings, 'LMS_SEGMENT_KEY', None)
+        has_mailchimp_id = hasattr(settings, 'MAILCHIMP_NEW_USER_LIST_ID')
+        if has_segment_key and has_mailchimp_id:
+            identity_args = [
+                self.user.id,  # pylint: disable=no-member
+                {
+                    'email': self.user.email,
+                    'username': self.user.username,
+                    'activated': 1,
+                },
+                {
+                    "MailChimp": {
+                        "listId": settings.MAILCHIMP_NEW_USER_LIST_ID
+                    }
+                }
+            ]
+            analytics.identify(*identity_args)
 
 
 class PendingNameChange(models.Model):
@@ -824,7 +857,7 @@ class CourseEnrollmentManager(models.Manager):
         'course_id' is the course_id to return enrollments
         """
 
-        enrollment_number = super(CourseEnrollmentManager, self).get_query_set().filter(
+        enrollment_number = super(CourseEnrollmentManager, self).get_queryset().filter(
             course_id=course_id,
             is_active=1
         ).count()
@@ -855,7 +888,7 @@ class CourseEnrollmentManager(models.Manager):
         """
         # Unfortunately, Django's "group by"-style queries look super-awkward
         query = use_read_replica_if_available(
-            super(CourseEnrollmentManager, self).get_query_set().filter(course_id=course_id, is_active=True).values(
+            super(CourseEnrollmentManager, self).get_queryset().filter(course_id=course_id, is_active=True).values(
                 'mode').order_by().annotate(Count('mode')))
         total = 0
         enroll_dict = defaultdict(int)
@@ -896,7 +929,7 @@ class CourseEnrollment(models.Model):
 
     # Represents the modes that are possible. We'll update this later with a
     # list of possible values.
-    mode = models.CharField(default="honor", max_length=100)
+    mode = models.CharField(default=CourseMode.DEFAULT_MODE_SLUG, max_length=100)
 
     objects = CourseEnrollmentManager()
 
@@ -923,6 +956,7 @@ class CourseEnrollment(models.Model):
         ).format(self.user, self.course_id, self.created, self.is_active)
 
     @classmethod
+    @transaction.atomic
     def get_or_create_enrollment(cls, user, course_key):
         """
         Create an enrollment for a user in a class. By default *this enrollment
@@ -950,32 +984,16 @@ class CourseEnrollment(models.Model):
         if user.id is None:
             user.save()
 
-        try:
-            enrollment, created = CourseEnrollment.objects.get_or_create(
-                user=user,
-                course_id=course_key,
-            )
+        enrollment, created = cls.objects.get_or_create(
+            user=user,
+            course_id=course_key,
+        )
 
-            # If we *did* just create a new enrollment, set some defaults
-            if created:
-                enrollment.mode = "honor"
-                enrollment.is_active = False
-                enrollment.save()
-        except IntegrityError:
-            log.info(
-                (
-                    "An integrity error occurred while getting-or-creating the enrollment"
-                    "for course key %s and student %s. This can occur if two processes try to get-or-create "
-                    "the enrollment at the same time and the database is set to REPEATABLE READ. We will try "
-                    "committing the transaction and retrying."
-                ),
-                course_key, user
-            )
-            transaction.commit()
-            enrollment = CourseEnrollment.objects.get(
-                user=user,
-                course_id=course_key,
-            )
+        # If we *did* just create a new enrollment, set some defaults
+        if created:
+            enrollment.mode = CourseMode.DEFAULT_MODE_SLUG
+            enrollment.is_active = False
+            enrollment.save()
 
         return enrollment
 
@@ -991,7 +1009,7 @@ class CourseEnrollment(models.Model):
             Course enrollment object or None
         """
         try:
-            return CourseEnrollment.objects.get(
+            return cls.objects.get(
                 user=user,
                 course_id=course_key
             )
@@ -1059,8 +1077,8 @@ class CourseEnrollment(models.Model):
                           u"mode:{}".format(self.mode)]
                 )
         if mode_changed:
-            # the user's default mode is "honor" and disabled for a course
-            # mode change events will only be emitted when the user's mode changes from this
+            # Only emit mode change events when the user's enrollment
+            # mode has changed from its previous setting
             self.emit_event(EVENT_NAME_ENROLLMENT_MODE_CHANGED)
 
     def emit_event(self, event_name):
@@ -1101,12 +1119,12 @@ class CourseEnrollment(models.Model):
                 log.exception(
                     u'Unable to emit event %s for user %s and course %s',
                     event_name,
-                    self.user.username,  # pylint: disable=no-member
+                    self.user.username,
                     self.course_id,
                 )
 
     @classmethod
-    def enroll(cls, user, course_key, mode="honor", check_access=False):
+    def enroll(cls, user, course_key, mode=None, check_access=False):
         """
         Enroll a user in a course. This saves immediately.
 
@@ -1119,8 +1137,8 @@ class CourseEnrollment(models.Model):
         `course_key` is our usual course_id string (e.g. "edX/Test101/2013_Fall)
 
         `mode` is a string specifying what kind of enrollment this is. The
-               default is 'honor', meaning honor certificate. Other options
-               include 'professional', 'verified', 'audit',
+               default is the default course mode, 'audit'. Other options
+               include 'professional', 'verified', 'honor',
                'no-id-professional' and 'credit'.
                See CourseMode in common/djangoapps/course_modes/models.py.
 
@@ -1140,6 +1158,8 @@ class CourseEnrollment(models.Model):
 
         Also emits relevant events for analytics purposes.
         """
+        if mode is None:
+            mode = _default_course_mode(unicode(course_key))
         # All the server-side checks for whether a user is allowed to enroll.
         try:
             course = CourseOverview.get_from_id(course_key)
@@ -1151,7 +1171,7 @@ class CourseEnrollment(models.Model):
                 raise NonExistentCourseError
 
         if check_access:
-            if CourseEnrollment.is_enrollment_closed(user, course):
+            if cls.is_enrollment_closed(user, course):
                 log.warning(
                     u"User %s failed to enroll in course %s because enrollment is closed",
                     user.username,
@@ -1159,14 +1179,15 @@ class CourseEnrollment(models.Model):
                 )
                 raise EnrollmentClosedError
 
-            if CourseEnrollment.objects.is_course_full(course):
+            if cls.objects.is_course_full(course):
                 log.warning(
-                    u"User %s failed to enroll in full course %s",
-                    user.username,
+                    u"Course %s has reached its maximum enrollment of %d learners. User %s failed to enroll.",
                     course_key.to_deprecated_string(),
+                    course.max_student_enrollments_allowed,
+                    user.username,
                 )
                 raise CourseFullError
-        if CourseEnrollment.is_enrolled(user, course_key):
+        if cls.is_enrolled(user, course_key):
             log.warning(
                 u"User %s attempted to enroll in %s, but they were already enrolled",
                 user.username,
@@ -1181,7 +1202,7 @@ class CourseEnrollment(models.Model):
         return enrollment
 
     @classmethod
-    def enroll_by_email(cls, email, course_id, mode="honor", ignore_errors=True):
+    def enroll_by_email(cls, email, course_id, mode=None, ignore_errors=True):
         """
         Enroll a user in a course given their email. This saves immediately.
 
@@ -1197,9 +1218,10 @@ class CourseEnrollment(models.Model):
         `course_id` is our usual course_id string (e.g. "edX/Test101/2013_Fall)
 
         `mode` is a string specifying what kind of enrollment this is. The
-               default is "honor", meaning honor certificate. Future options
-               may include "audit", "verified_id", etc. Please don't use it
-               until we have these mapped out.
+               default is the default course mode, 'audit'. Other options
+               include 'professional', 'verified', 'honor',
+               'no-id-professional' and 'credit'.
+               See CourseMode in common/djangoapps/course_modes/models.py.
 
         `ignore_errors` is a boolean indicating whether we should suppress
                         `User.DoesNotExist` errors (returning None) or let it
@@ -1233,7 +1255,7 @@ class CourseEnrollment(models.Model):
         `skip_refund` can be set to True to avoid the refund process.
         """
         try:
-            record = CourseEnrollment.objects.get(user=user, course_id=course_id)
+            record = cls.objects.get(user=user, course_id=course_id)
             record.update_enrollment(is_active=False, skip_refund=skip_refund)
 
         except cls.DoesNotExist:
@@ -1279,7 +1301,7 @@ class CourseEnrollment(models.Model):
             return False
 
         try:
-            record = CourseEnrollment.objects.get(user=user, course_id=course_key)
+            record = cls.objects.get(user=user, course_id=course_key)
             return record.is_active
         except cls.DoesNotExist:
             return False
@@ -1304,7 +1326,7 @@ class CourseEnrollment(models.Model):
         course_key = SlashSeparatedCourseKey(course_id_partial.org, course_id_partial.course, '')
         querystring = unicode(course_key.to_deprecated_string())
         try:
-            return CourseEnrollment.objects.filter(
+            return cls.objects.filter(
                 user=user,
                 course_id__startswith=querystring,
                 is_active=1
@@ -1325,14 +1347,14 @@ class CourseEnrollment(models.Model):
         Returns (None, None) if the courseenrollment record does not exist.
         """
         try:
-            record = CourseEnrollment.objects.get(user=user, course_id=course_id)
+            record = cls.objects.get(user=user, course_id=course_id)
             return (record.mode, record.is_active)
         except cls.DoesNotExist:
             return (None, None)
 
     @classmethod
     def enrollments_for_user(cls, user):
-        return CourseEnrollment.objects.filter(user=user, is_active=1)
+        return cls.objects.filter(user=user, is_active=1)
 
     def is_paid_course(self):
         """
@@ -1377,7 +1399,7 @@ class CourseEnrollment(models.Model):
 
         # If it is after the refundable cutoff date they should not be refunded.
         refund_cutoff_date = self.refund_cutoff_date()
-        if refund_cutoff_date and datetime.now() > refund_cutoff_date:
+        if refund_cutoff_date and datetime.now(UTC) > refund_cutoff_date:
             return False
 
         course_mode = CourseMode.mode_for_course(self.course_id, 'verified')
@@ -1389,7 +1411,7 @@ class CourseEnrollment(models.Model):
     def refund_cutoff_date(self):
         """ Calculate and return the refund window end date. """
         try:
-            attribute = self.attributes.get(namespace='order', name='order_number')  # pylint: disable=no-member
+            attribute = self.attributes.get(namespace='order', name='order_number')
         except ObjectDoesNotExist:
             return None
 
@@ -1400,7 +1422,7 @@ class CourseEnrollment(models.Model):
             self.course_overview.start.replace(tzinfo=None)
         )
 
-        return refund_window_start_date + EnrollmentRefundConfiguration.current().refund_window
+        return refund_window_start_date.replace(tzinfo=UTC) + EnrollmentRefundConfiguration.current().refund_window
 
     @property
     def username(self):
@@ -1434,6 +1456,12 @@ class CourseEnrollment(models.Model):
         Check the course enrollment mode is verified or not
         """
         return CourseMode.is_verified_slug(self.mode)
+
+    def is_professional_enrollment(self):
+        """
+        Check the course enrollment mode is professional or not
+        """
+        return CourseMode.is_professional_slug(self.mode)
 
     @classmethod
     def is_enrolled_as_verified(cls, user, course_key):
@@ -1495,7 +1523,7 @@ class ManualEnrollmentAudit(models.Model):
         """
         saves the student manual enrollment information
         """
-        cls.objects.create(
+        return cls.objects.create(
             enrolled_by=user,
             enrolled_email=email,
             state_transition=state_transition,
@@ -1732,10 +1760,11 @@ def log_successful_login(sender, request, user, **kwargs):  # pylint: disable=un
 @receiver(user_logged_out)
 def log_successful_logout(sender, request, user, **kwargs):  # pylint: disable=unused-argument
     """Handler to log when logouts have occurred successfully."""
-    if settings.FEATURES['SQUELCH_PII_IN_LOGS']:
-        AUDIT_LOG.info(u"Logout - user.id: {0}".format(request.user.id))
-    else:
-        AUDIT_LOG.info(u"Logout - {0}".format(request.user))
+    if hasattr(request, 'user'):
+        if settings.FEATURES['SQUELCH_PII_IN_LOGS']:
+            AUDIT_LOG.info(u"Logout - user.id: {0}".format(request.user.id))  # pylint: disable=logging-format-interpolation
+        else:
+            AUDIT_LOG.info(u"Logout - {0}".format(request.user))  # pylint: disable=logging-format-interpolation
 
 
 @receiver(user_logged_in)
@@ -1827,8 +1856,9 @@ class LinkedInAddToProfileConfiguration(ConfigurationModel):
             target (str): An identifier for the occurrance of the button.
 
         """
+        company_identifier = microsite.get_value('LINKEDIN_COMPANY_ID', self.company_identifier)
         params = OrderedDict([
-            ('_ed', self.company_identifier),
+            ('_ed', company_identifier),
             ('pfCertificationName', self._cert_name(course_name, cert_mode).encode('utf-8')),
             ('pfCertificationUrl', cert_url),
             ('source', source)
@@ -1848,7 +1878,7 @@ class LinkedInAddToProfileConfiguration(ConfigurationModel):
             cert_mode,
             _(u"{platform_name} Certificate for {course_name}")
         ).format(
-            platform_name=settings.PLATFORM_NAME,
+            platform_name=microsite.get_value('platform_name', settings.PLATFORM_NAME),
             course_name=course_name
         )
 
@@ -1948,9 +1978,6 @@ class LanguageField(models.CharField):
             *args,
             **kwargs
         )
-
-
-add_introspection_rules([], [r"^student\.models\.LanguageField"])
 
 
 class LanguageProficiency(models.Model):

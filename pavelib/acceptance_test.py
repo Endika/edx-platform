@@ -8,7 +8,7 @@ from optparse import make_option
 try:
     from pygments.console import colorize
 except ImportError:
-    colorize = lambda color, text: text  # pylint: disable=invalid-name
+    colorize = lambda color, text: text
 
 __test__ = False  # do not collect
 
@@ -30,7 +30,7 @@ __test__ = False  # do not collect
 ])
 def test_acceptance(options):
     """
-    Run the acceptance tests for the either lms or cms
+    Run the acceptance tests for either lms or cms
     """
     opts = {
         'fasttest': getattr(options, 'fasttest', False),

@@ -12,6 +12,7 @@ from student.models import UserProfile, PendingEmailChange
 from django.core.urlresolvers import reverse
 from django.core import mail
 from django.contrib.auth.models import User
+from django.db import transaction
 from django.test import TestCase, TransactionTestCase
 from django.test.client import RequestFactory
 from mock import Mock, patch
@@ -21,6 +22,7 @@ from edxmako.shortcuts import render_to_string
 from edxmako.tests import mako_middleware_process_request
 from util.request import safe_get_host
 from util.testing import EventTestMixin
+from openedx.core.djangoapps.theming.test_util import with_is_edx_domain
 
 
 class TestException(Exception):
@@ -35,7 +37,6 @@ def mock_render_to_string(template_name, context):
 
 def mock_render_to_response(template_name, context):
     """Return an HttpResponse with content that encodes template_name and context"""
-    # View confirm_email_change uses @transaction.commit_manually.
     # This simulates any db access in the templates.
     UserProfile.objects.exists()
     return HttpResponse(mock_render_to_string(template_name, context))
@@ -99,7 +100,7 @@ class ActivationEmailTests(TestCase):
         self._create_account()
         self._assert_activation_email(self.ACTIVATION_SUBJECT, self.OPENEDX_FRAGMENTS)
 
-    @patch.dict(settings.FEATURES, {'IS_EDX_DOMAIN': True})
+    @with_is_edx_domain(True)
     def test_activation_email_edx_domain(self):
         self._create_account()
         self._assert_activation_email(self.ACTIVATION_SUBJECT, self.EDX_DOMAIN_FRAGMENTS)
@@ -418,9 +419,10 @@ class EmailChangeConfirmationTests(EmailTestMixin, TransactionTestCase):
         self.assertEquals(0, PendingEmailChange.objects.count())
 
     @patch('student.views.PendingEmailChange.objects.get', Mock(side_effect=TestException))
-    @patch('student.views.transaction.rollback', wraps=django.db.transaction.rollback)
-    def test_always_rollback(self, rollback, _email_user):
-        with self.assertRaises(TestException):
-            confirm_email_change(self.request, self.key)
+    def test_always_rollback(self, _email_user):
+        connection = transaction.get_connection()
+        with patch.object(connection, 'rollback', wraps=connection.rollback) as mock_rollback:
+            with self.assertRaises(TestException):
+                confirm_email_change(self.request, self.key)
 
-        rollback.assert_called_with()
+            mock_rollback.assert_called_with()

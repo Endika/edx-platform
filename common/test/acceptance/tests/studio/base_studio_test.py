@@ -20,6 +20,12 @@ class StudioCourseTest(UniqueCourseTest):
         Install a course with no content using a fixture.
         """
         super(StudioCourseTest, self).setUp()
+        self.install_course_fixture(is_staff)
+
+    def install_course_fixture(self, is_staff=False):
+        """
+        Install a course fixture
+        """
         self.course_fixture = CourseFixture(
             self.course_info['org'],
             self.course_info['number'],
@@ -115,7 +121,7 @@ class StudioLibraryTest(WebAppTest):
     """
     as_staff = True
 
-    def setUp(self):  # pylint: disable=arguments-differ
+    def setUp(self):
         """
         Install a library with no content using a fixture.
         """

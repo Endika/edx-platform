@@ -8,7 +8,7 @@
         <div class="message-copy xseries-msg">
             <p>
                 <b class="message-copy-bold">${_("{category} Program: Interested in more courses in this subject?").format(category=course_program_info['display_category'])}</b>
-            <p>
+            </p>
             <p class="message-copy">
                 ${_("This course is 1 of {course_count} courses in the {link_start}{program_display_name}{link_end} {program_category}.").format(
                     course_count=course_program_info['course_count'],
@@ -25,7 +25,8 @@
             if enrollment_mode == "verified":
                 xseries_btn_class = "xseries-base-btn";
         %>
-        <a class="btn ${xseries_btn_class}" href="${course_program_info['program_marketing_url']}" target="_blank">
+        <a class="btn ${xseries_btn_class}" href="${course_program_info['program_marketing_url']}" target="_blank"
+           data-program-id="${course_program_info['program_id']}" >
             <i class="action-xseries-icon"></i>
             <span>
                 ${_("View {category} Details").format(category=course_program_info['display_category'])}

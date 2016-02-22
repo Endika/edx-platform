@@ -759,7 +759,6 @@ class ModuleStoreAssetWriteInterface(ModuleStoreAssetBase):
         pass
 
 
-# pylint: disable=abstract-method
 class ModuleStoreRead(ModuleStoreAssetBase):
     """
     An abstract interface for a database backend that stores XModuleDescriptor
@@ -1017,7 +1016,6 @@ class ModuleStoreRead(ModuleStoreAssetBase):
         pass
 
 
-# pylint: disable=abstract-method
 class ModuleStoreWrite(ModuleStoreRead, ModuleStoreAssetWriteInterface):
     """
     An abstract interface for a database backend that stores XModuleDescriptor
@@ -1331,7 +1329,7 @@ class ModuleStoreWriteBase(ModuleStoreReadBase, ModuleStoreWrite):
         """
         if self.contentstore:
             self.contentstore._drop_database()  # pylint: disable=protected-access
-        super(ModuleStoreWriteBase, self)._drop_database()  # pylint: disable=protected-access
+        super(ModuleStoreWriteBase, self)._drop_database()
 
     def create_child(self, user_id, parent_usage_key, block_type, block_id=None, fields=None, **kwargs):
         """
@@ -1376,6 +1374,13 @@ class ModuleStoreWriteBase(ModuleStoreReadBase, ModuleStoreWrite):
         """
         if self.signal_handler:
             self.signal_handler.send("course_deleted", course_key=course_key)
+
+    def _emit_item_deleted_signal(self, usage_key, user_id):
+        """
+        Helper method used to emit the item_deleted signal.
+        """
+        if self.signal_handler:
+            self.signal_handler.send("item_deleted", usage_key=usage_key, user_id=user_id)
 
 
 def only_xmodules(identifier, entry_points):

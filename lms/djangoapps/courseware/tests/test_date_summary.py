@@ -21,8 +21,8 @@ from courseware.date_summary import (
 )
 from openedx.core.djangoapps.self_paced.models import SelfPacedConfiguration
 from student.tests.factories import CourseEnrollmentFactory, UserFactory
-from verify_student.models import VerificationDeadline
-from verify_student.tests.factories import SoftwareSecurePhotoVerificationFactory
+from lms.djangoapps.verify_student.models import VerificationDeadline
+from lms.djangoapps.verify_student.tests.factories import SoftwareSecurePhotoVerificationFactory
 from xmodule.modulestore.tests.django_utils import SharedModuleStoreTestCase
 from xmodule.modulestore.tests.factories import CourseFactory
 
@@ -48,10 +48,14 @@ class CourseDateSummaryTest(SharedModuleStoreTestCase):
         """Set up the course and user for this test."""
         now = datetime.now(pytz.UTC)
         self.course = CourseFactory.create(  # pylint: disable=attribute-defined-outside-init
-            start=now + timedelta(days=days_till_start),
-            end=now + timedelta(days=days_till_end),
+            start=now + timedelta(days=days_till_start)
         )
         self.user = UserFactory.create()  # pylint: disable=attribute-defined-outside-init
+
+        if days_till_end is not None:
+            self.course.end = now + timedelta(days=days_till_end)
+        else:
+            self.course.end = None
 
         if enrollment_mode is not None and days_till_upgrade_deadline is not None:
             CourseModeFactory.create(
@@ -97,6 +101,9 @@ class CourseDateSummaryTest(SharedModuleStoreTestCase):
           'days_till_verification_deadline': -5,
           'verification_status': 'approved'},
          (TodaysDate, CourseEndDate)),
+        # No course end date
+        ({'days_till_end': None},
+         (CourseStartDate, TodaysDate, VerificationDeadlineDate, VerifiedUpgradeDeadlineDate)),
         # During course run
         ({'days_till_start': -1},
          (TodaysDate, CourseEndDate, VerificationDeadlineDate, VerifiedUpgradeDeadlineDate)),
@@ -131,13 +138,6 @@ class CourseDateSummaryTest(SharedModuleStoreTestCase):
         self.assertHTMLEqual(block.render(), html)
         self.assertFalse(block.is_enabled)
 
-    @freezegun.freeze_time('2015-01-02')
-    def test_date_render(self):
-        self.setup_course_and_user()
-        block = DateSummary(self.course, self.user)
-        block.date = datetime.now(pytz.UTC)
-        self.assertIn('Jan 02, 2015', block.render())
-
     ## TodaysDate
 
     @freezegun.freeze_time('2015-01-02')
@@ -146,8 +146,14 @@ class CourseDateSummaryTest(SharedModuleStoreTestCase):
         block = TodaysDate(self.course, self.user)
         self.assertTrue(block.is_enabled)
         self.assertEqual(block.date, datetime.now(pytz.UTC))
-        self.assertEqual(block.title, 'Today is Jan 02, 2015')
+        self.assertEqual(block.title, 'Today is Jan 02, 2015 (00:00 UTC)')
         self.assertNotIn('date-summary-date', block.render())
+
+    @freezegun.freeze_time('2015-01-02')
+    def test_todays_date_render(self):
+        self.setup_course_and_user()
+        block = TodaysDate(self.course, self.user)
+        self.assertIn('Jan 02, 2015', block.render())
 
     ## CourseStartDate
 
@@ -155,6 +161,12 @@ class CourseDateSummaryTest(SharedModuleStoreTestCase):
         self.setup_course_and_user()
         block = CourseStartDate(self.course, self.user)
         self.assertEqual(block.date, self.course.start)
+
+    @freezegun.freeze_time('2015-01-02')
+    def test_start_date_render(self):
+        self.setup_course_and_user()
+        block = CourseStartDate(self.course, self.user)
+        self.assertIn('in 1 day - Jan 03, 2015', block.render())
 
     ## CourseEndDate
 
@@ -245,3 +257,18 @@ class CourseDateSummaryTest(SharedModuleStoreTestCase):
         )
         self.assertEqual(block.link_text, 'Learn More')
         self.assertEqual(block.link, '')
+
+    @freezegun.freeze_time('2015-01-02')
+    @ddt.data(
+        (-1, '1 day ago - Jan 01, 2015'),
+        (1, 'in 1 day - Jan 03, 2015')
+    )
+    @ddt.unpack
+    def test_render_date_string_past(self, delta, expected_date_string):
+        self.setup_course_and_user(
+            days_till_start=-10,
+            verification_status='denied',
+            days_till_verification_deadline=delta,
+        )
+        block = VerificationDeadlineDate(self.course, self.user)
+        self.assertEqual(block.get_context()['date'], expected_date_string)
